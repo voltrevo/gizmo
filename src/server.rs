@@ -12,7 +12,7 @@ use axum::{
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, RwLock, mpsc};
 use tower_http::cors::CorsLayer;
 
 /// Token bucket rate limiter for a single identity.
@@ -70,6 +70,8 @@ pub struct AppState {
     pub token: String,
     pub broadcast_tx: broadcast::Sender<StoredMessage>,
     pub rate_limiter: RateLimiter,
+    /// Registry of connected WebSocket clients: pubkey → list of MPSC senders.
+    pub connected_clients: Arc<RwLock<HashMap<String, Vec<mpsc::UnboundedSender<ServerEnvelope>>>>>,
 }
 
 impl AppState {
@@ -80,6 +82,7 @@ impl AppState {
             token,
             broadcast_tx,
             rate_limiter: RateLimiter::new(),
+            connected_clients: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }

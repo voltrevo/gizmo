@@ -46,7 +46,14 @@ export interface Subscription {
   unsubscribe(): void;
 }
 
+export interface IncomingWhisper {
+  from: string;
+  body: unknown;
+  signature: string;
+}
+
 type MessageHandler = (msg: StoredMessage, subId: string) => void;
+type WhisperHandler = (whisper: IncomingWhisper) => void;
 type ErrorHandler = (detail: string) => void;
 type CloseHandler = (code: number, reason: string) => void;
 
@@ -60,6 +67,7 @@ export class GizmoClient {
   private ws: WebSocket | null = null;
   private messageHandlers = new Map<string, MessageHandler>();
   private globalMessageHandler: MessageHandler | null = null;
+  private whisperHandler: WhisperHandler | null = null;
   private errorHandler: ErrorHandler | null = null;
   private closeHandler: CloseHandler | null = null;
   private pendingResolves = new Map<string, (value: unknown) => void>();
@@ -157,11 +165,10 @@ export class GizmoClient {
             break;
           }
           case "published": {
-            const r = this.pendingResolves.get("publish");
-            if (r) {
-              this.pendingResolves.delete("publish");
-              r(data.id as number);
-            }
+            // id=0 means ephemeral whisper ack, otherwise regular publish
+            const key = data.id === 0 ? "whisper" : "publish";
+            const r = this.pendingResolves.get(key);
+            if (r) { this.pendingResolves.delete(key); r(data.id as number); }
             break;
           }
           case "subscribed": {
@@ -180,13 +187,16 @@ export class GizmoClient {
             }
             break;
           }
+          case "whisper": {
+            this.whisperHandler?.({ from: data.from, body: data.body, signature: data.signature });
+            break;
+          }
           case "error": {
             this.errorHandler?.(data.detail);
-            // Reject any pending publish
-            const r = this.pendingResolves.get("publish");
-            if (r) {
-              this.pendingResolves.delete("publish");
-              r(-1);
+            // Reject any pending publish or whisper
+            for (const key of ["publish", "whisper"]) {
+              const r = this.pendingResolves.get(key);
+              if (r) { this.pendingResolves.delete(key); r(-1); }
             }
             break;
           }
@@ -202,6 +212,10 @@ export class GizmoClient {
 
   onMessage(handler: MessageHandler): void {
     this.globalMessageHandler = handler;
+  }
+
+  onWhisper(handler: WhisperHandler): void {
+    this.whisperHandler = handler;
   }
 
   onError(handler: ErrorHandler): void {
@@ -246,6 +260,19 @@ export class GizmoClient {
     });
 
     return promise;
+  }
+
+  /** Send an ephemeral whisper to a specific recipient (by pubkey). Not stored. */
+  async whisper(to: string, body: unknown): Promise<void> {
+    const msg = { to, body };
+    const signature = this.signer.signPayload(msg);
+
+    const promise = new Promise<void>((resolve) => {
+      this.pendingResolves.set("whisper", resolve as (v: unknown) => void);
+    });
+
+    this.send({ type: "whisper", to, body, signature });
+    await promise;
   }
 
   /** Subscribe to live messages. Returns a Subscription handle. */

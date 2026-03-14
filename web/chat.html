@@ -340,6 +340,33 @@
   .msg .detail.open { display: block; }
 
   /* ── Input bar ──────────────────────────────── */
+  /* ── Error banner ───────────────────────────── */
+  #error-banner {
+    display: none;
+    padding: 8px 14px;
+    background: rgba(240, 80, 96, 0.12);
+    border-top: 1px solid rgba(240, 80, 96, 0.3);
+    gap: 8px;
+    align-items: center;
+    flex-shrink: 0;
+    font-size: 13px;
+    color: var(--accent-red);
+  }
+  #error-banner.visible { display: flex; }
+  #error-banner span { flex: 1; }
+  #error-dismiss {
+    background: none;
+    border: none;
+    color: var(--accent-red);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 2px;
+    opacity: 0.7;
+    touch-action: manipulation;
+    flex-shrink: 0;
+  }
+  #error-dismiss:hover { opacity: 1; }
+
   #input-bar {
     display: flex;
     padding: 10px 12px;
@@ -696,6 +723,67 @@
   }
   #scroll-badge.visible { display: block; }
 
+  /* ── Whisper toast ──────────────────────────── */
+  #whisper-container {
+    position: absolute;
+    bottom: 80px;
+    left: 16px;
+    right: 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    pointer-events: none;
+    z-index: 20;
+  }
+
+  .whisper-toast {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    background: rgba(169, 126, 240, 0.15);
+    border: 1px solid rgba(169, 126, 240, 0.35);
+    border-radius: var(--radius);
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--text-primary);
+    pointer-events: all;
+    animation: whisper-in 0.2s ease;
+    max-width: 400px;
+  }
+
+  @keyframes whisper-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .whisper-toast .wlabel {
+    color: var(--accent-purple);
+    font-size: 11px;
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding-top: 1px;
+  }
+
+  .whisper-toast .wbody {
+    flex: 1;
+    min-width: 0;
+    word-break: break-word;
+  }
+
+  .whisper-toast .wdismiss {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0;
+    flex-shrink: 0;
+    line-height: 1;
+    opacity: 0.7;
+  }
+  .whisper-toast .wdismiss:hover { opacity: 1; }
+
   /* ── Responsive ─────────────────────────────── */
   @media (min-width: 768px) {
     .msg { padding: 8px 24px; }
@@ -735,8 +823,14 @@
 </div>
 
 <button id="scroll-bottom" aria-label="Scroll to bottom">&#x2193;<span id="scroll-badge"></span></button>
+<div id="whisper-container"></div>
 
 <div id="emoji-picker" hidden></div>
+
+<div id="error-banner">
+  <span id="error-text"></span>
+  <button id="error-dismiss" aria-label="Dismiss">&#x2715;</button>
+</div>
 
 <div id="input-bar">
   <textarea id="text-input" rows="1" placeholder='Message or JSON {"tags":[],"body":{}}' autofocus autocapitalize="sentences" autocorrect="on"></textarea>
@@ -1127,8 +1221,29 @@ const searchPrevBtn = document.getElementById("search-prev");
 const searchNextBtn = document.getElementById("search-next");
 const searchCloseBtn = document.getElementById("search-close");
 const emojiPicker = document.getElementById("emoji-picker");
+const errorBanner = document.getElementById("error-banner");
+const errorText = document.getElementById("error-text");
+const errorDismiss = document.getElementById("error-dismiss");
 
 let currentChannel = "default";
+
+// ── Error banner ──────────────────────────────────────────────────────────
+
+let errorTimer = null;
+
+function showError(msg, autoDismissMs = 0) {
+  errorText.textContent = msg;
+  errorBanner.classList.add("visible");
+  if (errorTimer) clearTimeout(errorTimer);
+  if (autoDismissMs > 0) errorTimer = setTimeout(clearError, autoDismissMs);
+}
+
+function clearError() {
+  errorBanner.classList.remove("visible");
+  if (errorTimer) { clearTimeout(errorTimer); errorTimer = null; }
+}
+
+errorDismiss.onclick = clearError;
 
 // ── Virtual scroll state ─────────────────────────────────────────────────
 
@@ -1471,10 +1586,14 @@ function connectWs() {
         unreadCount++;
         updateScrollBadge();
       }
+    } else if (data.type === "whisper") {
+      showWhisper(data.from, data.body);
     } else if (data.type === "error") {
       console.error("server error:", data.detail);
+      showError(data.detail || "server error", 6000);
     }
   };
+  ws.onerror = () => showError("connection error — reconnecting…");
   ws.onclose = () => { updateStatus("reconnecting..."); setTimeout(connectWs, 2000); };
 }
 
@@ -1507,18 +1626,20 @@ textInput.addEventListener("input", () => {
 
 async function sendMessage() {
   const raw = textInput.value.trim();
-  if (!raw || !ws || ws.readyState !== 1) return;
+  if (!raw) return;
+  if (!ws || ws.readyState !== 1) { showError("not connected", 4000); return; }
   let msg;
   if (isJsonMode()) {
     let parsed;
-    try { parsed = JSON.parse(raw); } catch (e) { console.error("invalid JSON:", e.message); return; }
-    if (!parsed.tags || !parsed.body) { console.error("JSON message must have 'tags' and 'body'"); return; }
+    try { parsed = JSON.parse(raw); } catch (e) { showError("invalid JSON: " + e.message, 6000); return; }
+    if (!parsed.tags || !parsed.body) { showError("JSON message must have 'tags' and 'body'", 5000); return; }
     msg = { channel: parsed.channel || currentChannel, tags: parsed.tags, body: parsed.body };
     if (parsed.allow) msg.allow = parsed.allow;
     if (parsed.disallow) msg.disallow = parsed.disallow;
   } else {
     msg = { channel: currentChannel, tags: ["chat"], body: raw };
   }
+  clearError();
   const sig = signMessage(identity.secretKey, msg);
   ws.send(JSON.stringify({ type: "publish", ...msg, signature: sig }));
   textInput.value = "";
@@ -1553,9 +1674,34 @@ if (window.visualViewport) {
   });
 }
 
+// ── Whispers ──────────────────────────────────────────────────────────────
+
+const whisperContainer = document.getElementById("whisper-container");
+
+function showWhisper(fromPubkey, body) {
+  const name = getUsername(fromPubkey);
+  let bodyText;
+  if (typeof body === "string") bodyText = escapeHtml(body);
+  else if (body && typeof body === "object" && "text" in body) bodyText = escapeHtml(String(body.text));
+  else bodyText = `<code>${escapeHtml(JSON.stringify(body))}</code>`;
+
+  const toast = document.createElement("div");
+  toast.className = "whisper-toast";
+  toast.innerHTML =
+    `<span class="wlabel">whisper from ${escapeHtml(name)}</span>` +
+    `<span class="wbody">${bodyText}</span>` +
+    `<button class="wdismiss" aria-label="Dismiss">&#x2715;</button>`;
+
+  toast.querySelector(".wdismiss").onclick = () => toast.remove();
+  whisperContainer.appendChild(toast);
+
+  // Auto-dismiss after 15s
+  setTimeout(() => { if (toast.parentNode) toast.remove(); }, 15000);
+}
+
 // ── Reactions ─────────────────────────────────────────────────────────────
 
-const EMOJI_OPTIONS = ["👍","❤️","😂","🔥","👀","😮","😢","🎉","✅","🤔"];
+const EMOJI_OPTIONS = ["👍","❤️","😂","🔥","👀","😮","😢","🎉","✅","🤔","🍪"];
 
 function getReactionCounts(msgId) {
   const byEmoji = reactionsByRef.get(msgId);

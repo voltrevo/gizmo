@@ -75,10 +75,19 @@ pub enum ClientEnvelope {
     },
     #[serde(rename = "unsubscribe")]
     Unsubscribe { sub_id: String },
+    /// Ephemeral point-to-point message. Never stored; only delivered if recipient is connected.
+    #[serde(rename = "whisper")]
+    Whisper {
+        /// Recipient's ed25519 public key (hex).
+        to: String,
+        body: serde_json::Value,
+        /// Signature of canonical payload: JSON({to, body}).
+        signature: String,
+    },
 }
 
 /// Server→client envelope over WebSocket.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
 pub enum ServerEnvelope {
     #[serde(rename = "message")]
@@ -94,6 +103,13 @@ pub enum ServerEnvelope {
     Unsubscribed { sub_id: String },
     #[serde(rename = "error")]
     Error { detail: String },
+    /// Ephemeral whisper delivered to this client.
+    #[serde(rename = "whisper")]
+    Whisper {
+        from: String,
+        body: serde_json::Value,
+        signature: String,
+    },
 }
 
 /// Query params for WebSocket auth (browser fallback).

@@ -186,6 +186,33 @@ async function main() {
       process.exit(0);
     }
 
+    case "whisper": {
+      ensureKeypair();
+      const to = flag("to");
+      if (!to) {
+        console.error("--to <pubkey> is required");
+        process.exit(1);
+      }
+      let bodyRaw = flag("body");
+      if (bodyRaw === "-" || (!bodyRaw && !process.stdin.isTTY)) {
+        bodyRaw = (await Bun.stdin.text()).trimEnd();
+      }
+      if (!bodyRaw) {
+        console.error("--body is required");
+        process.exit(1);
+      }
+      let body: unknown;
+      try { body = JSON.parse(bodyRaw); } catch { body = bodyRaw; }
+
+      const client = makeClient();
+      client.onError((detail) => { console.error(`error: ${detail}`); process.exit(1); });
+      await client.connect();
+      await client.whisper(to, body);
+      console.log("whisper sent");
+      client.disconnect();
+      process.exit(0);
+    }
+
     case "subscribe": {
       ensureKeypair();
       const client = makeClient();
