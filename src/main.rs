@@ -4,7 +4,18 @@ mod server;
 mod ws;
 
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 use std::sync::Arc;
+
+fn default_data_dir() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("gizmo")
+}
+
+fn default_db_path() -> String {
+    default_data_dir().join("gizmo.db").to_string_lossy().into_owned()
+}
 
 #[derive(Parser)]
 #[command(name = "gizmo", about = "WebSocket message server")]
@@ -26,7 +37,7 @@ enum Command {
         token: Option<String>,
 
         /// SQLite database path
-        #[arg(long, default_value = "gizmo.db")]
+        #[arg(long, default_value_t = default_db_path())]
         db: String,
 
         /// Max history size in bytes
@@ -45,7 +56,7 @@ enum Command {
         token: Option<String>,
 
         /// SQLite database path
-        #[arg(long, default_value = "gizmo.db")]
+        #[arg(long, default_value_t = default_db_path())]
         db: String,
 
         /// Max history size in bytes
@@ -124,12 +135,20 @@ enum Command {
 
 const SERVICE_NAME: &str = "gizmo";
 
+fn ensure_parent_dir(path: &str) {
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).expect("failed to create data directory");
+        }
+    }
+}
+
 fn resolve_token(token: Option<String>, db: &str) -> String {
     token.unwrap_or_else(|| {
         let token_path = std::path::Path::new(db)
             .parent()
             .unwrap_or(std::path::Path::new("."))
-            .join(".gizmo_token");
+            .join("token");
         if let Ok(existing) = std::fs::read_to_string(&token_path) {
             let t = existing.trim().to_string();
             if !t.is_empty() {
@@ -147,6 +166,7 @@ fn resolve_token(token: Option<String>, db: &str) -> String {
 
 async fn run_server(port: u16, token: Option<String>, db: String, max_history_bytes: u64) {
     tracing_subscriber::fmt::init();
+    ensure_parent_dir(&db);
     let token = resolve_token(token, &db);
     let state = Arc::new(server::AppState::new(&db, token, max_history_bytes));
     let app = server::router(state.clone());
@@ -160,6 +180,7 @@ fn systemd_install(port: u16, token: Option<String>, db: String, max_history_byt
     let exe = std::env::current_exe().expect("failed to get current executable path");
     let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
 
+    ensure_parent_dir(&db);
     let token = resolve_token(token, &db);
 
     // Resolve db to absolute path so systemd can find it regardless of WorkingDirectory

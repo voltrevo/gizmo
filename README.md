@@ -8,13 +8,13 @@ A self-hosted WebSocket message server with ed25519 identity, tag-based routing,
 gizmo run
 ```
 
-On first start, a random token is generated and saved to `.gizmo_token` (next to the database file). The token is printed to stdout. On subsequent starts the saved token is reused.
+Data is stored in `~/.local/share/gizmo/` by default. On first start, a random token is generated and saved to `~/.local/share/gizmo/token`. The token is printed to stdout. On subsequent starts the saved token is reused.
 
 | Flag | Default | Description |
 |---|---|---|
 | `--token` | *(auto-generated)* | Bearer token. Also via `GIZMO_TOKEN` env. Overrides the saved token. |
 | `--port` | `10421` | Listen port |
-| `--db` | `gizmo.db` | SQLite database path |
+| `--db` | `~/.local/share/gizmo/gizmo.db` | SQLite database path |
 | `--max-history-bytes` | `10737418240` (10 GB) | Max stored history size; oldest messages evicted when exceeded |
 
 HTTP only — use a reverse proxy for TLS.
