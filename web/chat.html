@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>gizmo debug</title>
+<style>
+  :root {
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-tertiary: #1c2128;
+    --bg-input: #0d1117;
+    --border: #30363d;
+    --border-light: #21262d;
+    --text-primary: #e6edf3;
+    --text-secondary: #8b949e;
+    --text-muted: #6e7681;
+    --accent-blue: #58a6ff;
+    --accent-green: #3fb950;
+    --accent-orange: #d29922;
+    --accent-red: #f85149;
+    --accent-purple: #bc8cff;
+    --msg-self-border: #58a6ff;
+    --msg-other-border: #30363d;
+    --radius: 8px;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-top: env(safe-area-inset-top, 0px);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+  }
+
+  /* ── Status bar ────────────────────────────── */
+  #status {
+    padding: 10px 16px;
+    padding-top: calc(10px + var(--safe-top));
+    background: var(--bg-secondary);
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    z-index: 10;
+  }
+
+  #status .left {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
+    flex: 1;
+  }
+
+  #status-text {
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  #status .id { color: var(--accent-blue); }
+  #status .ok { color: var(--accent-green); }
+  #status .err { color: var(--accent-red); }
+  #status .ch { color: var(--accent-orange); }
+
+  #channel-controls {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  #channel-controls input {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 6px 10px;
+    font-family: monospace;
+    font-size: 13px;
+    border-radius: var(--radius);
+    width: 100px;
+    -webkit-appearance: none;
+  }
+
+  #channel-controls button {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    border-radius: var(--radius);
+    min-height: 34px;
+    touch-action: manipulation;
+  }
+
+  /* ── Messages container ────────────────────── */
+  #scroll-container {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    position: relative;
+  }
+
+  #scroll-spacer {
+    width: 100%;
+    position: relative;
+  }
+
+  #messages {
+    position: absolute;
+    left: 0;
+    right: 0;
+    will-change: transform;
+  }
+
+  #load-indicator {
+    text-align: center;
+    padding: 12px;
+    font-size: 12px;
+    color: var(--text-muted);
+    display: none;
+  }
+
+  #load-indicator.visible { display: block; }
+
+  /* ── Message bubble ────────────────────────── */
+  .msg {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-light);
+    position: relative;
+  }
+
+  .msg .meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    flex-wrap: wrap;
+  }
+
+  .msg .pk {
+    color: var(--accent-blue);
+    font-family: monospace;
+    font-size: 11px;
+  }
+
+  .msg.self .pk { color: var(--accent-green); }
+  .msg.self .pk::after { content: " (you)"; color: var(--text-muted); font-family: inherit; }
+
+  .msg .tags {
+    color: var(--accent-orange);
+    font-size: 11px;
+    font-family: monospace;
+  }
+
+  .msg .time {
+    color: var(--text-muted);
+    font-size: 11px;
+    margin-left: auto;
+  }
+
+  .msg .body {
+    font-size: 14px;
+    line-height: 1.55;
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+
+  /* ── Markdown rendering ────────────────────── */
+  .msg .body p { margin-bottom: 8px; }
+  .msg .body p:last-child { margin-bottom: 0; }
+  .msg .body strong { font-weight: 600; color: var(--text-primary); }
+  .msg .body em { font-style: italic; color: var(--text-secondary); }
+
+  .msg .body code {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.9em;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--accent-purple);
+  }
+
+  .msg .body pre {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    margin: 8px 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .msg .body pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--text-primary);
+    font-size: inherit;
+  }
+
+  .msg .body blockquote {
+    border-left: 3px solid var(--accent-blue);
+    padding: 4px 12px;
+    margin: 8px 0;
+    color: var(--text-secondary);
+  }
+
+  .msg .body ul, .msg .body ol {
+    padding-left: 20px;
+    margin: 6px 0;
+  }
+
+  .msg .body li { margin: 2px 0; }
+
+  .msg .body h1, .msg .body h2, .msg .body h3,
+  .msg .body h4, .msg .body h5, .msg .body h6 {
+    margin: 12px 0 6px;
+    font-weight: 600;
+  }
+  .msg .body h1 { font-size: 1.3em; }
+  .msg .body h2 { font-size: 1.15em; }
+  .msg .body h3 { font-size: 1.05em; }
+
+  .msg .body a {
+    color: var(--accent-blue);
+    text-decoration: none;
+  }
+  .msg .body a:hover { text-decoration: underline; }
+
+  .msg .body hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 10px 0;
+  }
+
+  /* ── Raw detail ────────────────────────────── */
+  .msg .toggle {
+    cursor: pointer;
+    user-select: none;
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: 4px 8px;
+    border-radius: 4px;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .msg .toggle:active { background: var(--bg-tertiary); }
+
+  .msg .detail {
+    display: none;
+    margin-top: 8px;
+    padding: 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: monospace;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 300px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .msg .detail.open { display: block; }
+
+  /* ── Input bar ─────────────────────────────── */
+  #input-bar {
+    display: flex;
+    padding: 10px 12px;
+    padding-bottom: calc(10px + var(--safe-bottom));
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+    gap: 8px;
+    align-items: flex-end;
+    flex-shrink: 0;
+  }
+
+  #text-input {
+    flex: 1;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 10px 14px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-size: 16px; /* prevents iOS zoom */
+    border-radius: var(--radius);
+    resize: none;
+    min-height: 42px;
+    max-height: 160px;
+    line-height: 1.4;
+    -webkit-appearance: none;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  #text-input:focus {
+    border-color: var(--accent-blue);
+  }
+
+  #text-input::placeholder {
+    color: var(--text-muted);
+  }
+
+  .input-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: center;
+  }
+
+  #send-btn {
+    background: #1f6feb;
+    border: none;
+    color: #fff;
+    padding: 10px 18px;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: var(--radius);
+    min-height: 42px;
+    min-width: 60px;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s;
+  }
+
+  #send-btn:active { background: #1a5dc7; }
+
+  #mode-hint {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* ── Config screen ─────────────────────────── */
+  #config {
+    padding: 24px 20px;
+    max-width: 400px;
+    margin: 40px auto;
+  }
+
+  #config h2 {
+    font-size: 18px;
+    margin-bottom: 16px;
+    color: var(--text-primary);
+  }
+
+  #config input {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 12px 14px;
+    font-family: inherit;
+    font-size: 16px;
+    width: 100%;
+    margin: 6px 0;
+    border-radius: var(--radius);
+    -webkit-appearance: none;
+  }
+
+  #config input:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+  }
+
+  #config button {
+    background: #1f6feb;
+    border: none;
+    color: #fff;
+    padding: 12px 20px;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    margin-top: 12px;
+    border-radius: var(--radius);
+    width: 100%;
+    min-height: 48px;
+    touch-action: manipulation;
+  }
+
+  #config label {
+    display: block;
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-top: 12px;
+    margin-bottom: 2px;
+  }
+
+  /* ── Scroll to bottom FAB ──────────────────── */
+  #scroll-bottom {
+    position: absolute;
+    bottom: 80px;
+    right: 16px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 18px;
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  }
+
+  #scroll-bottom.visible { display: flex; }
+
+  /* ── Responsive ────────────────────────────── */
+  @media (min-width: 768px) {
+    .msg { padding: 10px 24px; }
+    #input-bar { padding: 12px 24px; }
+    #status { padding: 10px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="status">
+  <span class="left">
+    <span id="status-text">connecting...</span>
+  </span>
+  <div id="channel-controls">
+    <input id="channel-input" type="text" placeholder="channel" value="default" autocapitalize="none" autocorrect="off" spellcheck="false">
+    <button id="channel-switch">switch</button>
+  </div>
+</div>
+
+<div id="scroll-container">
+  <div id="load-indicator">loading...</div>
+  <div id="scroll-spacer">
+    <div id="messages"></div>
+  </div>
+</div>
+
+<button id="scroll-bottom" aria-label="Scroll to bottom">&#x2193;</button>
+
+<div id="input-bar">
+  <textarea id="text-input" rows="1" placeholder='Message or JSON {"tags":[],"body":{}}' autofocus autocapitalize="sentences" autocorrect="on"></textarea>
+  <div class="input-actions">
+    <button id="send-btn">Send</button>
+    <div id="mode-hint">text</div>
+  </div>
+</div>
+
+<script type="module">
+import * as ed from "https://esm.sh/@noble/ed25519@3";
+import { sha512 } from "https://esm.sh/@noble/hashes@2/sha2.js";
+
+ed.hashes.sha512 = sha512;
+
+const { bytesToHex, hexToBytes } = ed.etc;
+
+// ── Identity ────────────────────────────────────────────────────────────
+
+function loadOrCreateIdentity() {
+  let sk = localStorage.getItem("gizmo_secret_key");
+  if (sk && sk.length === 64) {
+    const pub_ = bytesToHex(ed.getPublicKey(hexToBytes(sk)));
+    return { secretKey: sk, publicKey: pub_ };
+  }
+  const secretKey = ed.utils.randomSecretKey();
+  const publicKey = ed.getPublicKey(secretKey);
+  const skHex = bytesToHex(secretKey);
+  const pkHex = bytesToHex(publicKey);
+  localStorage.setItem("gizmo_secret_key", skHex);
+  return { secretKey: skHex, publicKey: pkHex };
+}
+
+function canonicalPayload(msg) {
+  const { signature, ...rest } = msg;
+  return JSON.stringify(rest);
+}
+
+function signMessage(sk, msg) {
+  const canon = canonicalPayload(msg);
+  const sig = ed.sign(new TextEncoder().encode(canon), hexToBytes(sk));
+  return bytesToHex(sig);
+}
+
+// ── Config ──────────────────────────────────────────────────────────────
+
+const params = new URLSearchParams(location.search);
+const SERVER = params.get("server") || localStorage.getItem("gizmo_server") || location.origin;
+const TOKEN = params.get("token") || localStorage.getItem("gizmo_token") || "";
+
+if (params.get("server")) localStorage.setItem("gizmo_server", SERVER);
+if (params.get("token")) localStorage.setItem("gizmo_token", TOKEN);
+
+if (!TOKEN) {
+  document.getElementById("messages").innerHTML = `
+    <div id="config">
+      <h2>gizmo debug</h2>
+      <label for="cfg-server">Server URL</label>
+      <input id="cfg-server" placeholder="https://gizmo.example.com" value="${escapeHtml(SERVER)}">
+      <label for="cfg-token">Bearer token</label>
+      <input id="cfg-token" placeholder="your token" type="password">
+      <button id="cfg-go">Connect</button>
+    </div>
+  `;
+  document.getElementById("scroll-spacer").style.position = "static";
+  document.getElementById("messages").style.position = "static";
+  document.getElementById("cfg-go").onclick = () => {
+    const s = document.getElementById("cfg-server").value.trim();
+    const t = document.getElementById("cfg-token").value.trim();
+    if (s) localStorage.setItem("gizmo_server", s);
+    if (t) localStorage.setItem("gizmo_token", t);
+    location.reload();
+  };
+  throw new Error("need config");
+}
+
+// ── Markdown renderer (lightweight) ─────────────────────────────────────
+
+function renderMarkdown(text) {
+  if (typeof text !== "string") return escapeHtml(String(text));
+
+  // Normalize line endings
+  let s = text.replace(/\r\n/g, "\n");
+
+  // Escape HTML first
+  s = s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  // Code blocks (``` ... ```)
+  s = s.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    return `<pre><code>${code.replace(/\n$/, "")}</code></pre>`;
+  });
+
+  // Inline code
+  s = s.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+
+  // Headings
+  s = s.replace(/^######\s+(.+)$/gm, "<h6>$1</h6>");
+  s = s.replace(/^#####\s+(.+)$/gm, "<h5>$1</h5>");
+  s = s.replace(/^####\s+(.+)$/gm, "<h4>$1</h4>");
+  s = s.replace(/^###\s+(.+)$/gm, "<h3>$1</h3>");
+  s = s.replace(/^##\s+(.+)$/gm, "<h2>$1</h2>");
+  s = s.replace(/^#\s+(.+)$/gm, "<h1>$1</h1>");
+
+  // Horizontal rules
+  s = s.replace(/^---+$/gm, "<hr>");
+
+  // Blockquotes
+  s = s.replace(/^&gt;\s?(.*)$/gm, "<blockquote>$1</blockquote>");
+  // Merge adjacent blockquotes
+  s = s.replace(/<\/blockquote>\n<blockquote>/g, "\n");
+
+  // Bold
+  s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/__(.+?)__/g, "<strong>$1</strong>");
+
+  // Italic
+  s = s.replace(/\*(.+?)\*/g, "<em>$1</em>");
+  s = s.replace(/_(.+?)_/g, "<em>$1</em>");
+
+  // Strikethrough
+  s = s.replace(/~~(.+?)~~/g, "<del>$1</del>");
+
+  // Links [text](url)
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  // Unordered lists
+  s = s.replace(/^[\*\-]\s+(.+)$/gm, "<li>$1</li>");
+  s = s.replace(/((?:<li>.*<\/li>\n?)+)/g, "<ul>$1</ul>");
+
+  // Ordered lists
+  s = s.replace(/^\d+\.\s+(.+)$/gm, "<li>$1</li>");
+
+  // Paragraphs: wrap remaining loose lines
+  const blocks = s.split(/\n\n+/);
+  s = blocks.map(block => {
+    const trimmed = block.trim();
+    if (!trimmed) return "";
+    if (/^<(h[1-6]|pre|ul|ol|blockquote|hr|li|div)/.test(trimmed)) return trimmed;
+    return `<p>${trimmed.replace(/\n/g, "<br>")}</p>`;
+  }).join("\n");
+
+  return s;
+}
+
+// ── App ─────────────────────────────────────────────────────────────────
+
+const identity = loadOrCreateIdentity();
+const statusTextEl = document.getElementById("status-text");
+const scrollContainer = document.getElementById("scroll-container");
+const scrollSpacer = document.getElementById("scroll-spacer");
+const messagesEl = document.getElementById("messages");
+const loadIndicator = document.getElementById("load-indicator");
+const textInput = document.getElementById("text-input");
+const sendBtn = document.getElementById("send-btn");
+const channelInput = document.getElementById("channel-input");
+const channelSwitchBtn = document.getElementById("channel-switch");
+const scrollBottomBtn = document.getElementById("scroll-bottom");
+const modeHint = document.getElementById("mode-hint");
+
+let currentChannel = "default";
+
+// ── Virtual scroll state ────────────────────────────────────────────────
+
+let allMessages = [];
+let messageMap = new Map();
+
+const ESTIMATED_ROW_HEIGHT = 80;
+const BUFFER_COUNT = 10;
+const PAGE_SIZE = 50;
+
+let heightCache = new Map();
+let expandedIds = new Set();
+let renderedRange = { start: 0, end: 0 };
+let isUserNearBottom = true;
+let isLoadingHistory = false;
+let hasMoreHistory = true;
+let oldestLoadedId = null;
+
+function getTotalHeight() {
+  let total = 0;
+  for (let i = 0; i < allMessages.length; i++) {
+    total += heightCache.get(i) || ESTIMATED_ROW_HEIGHT;
+  }
+  return total;
+}
+
+function getOffsetForIndex(index) {
+  let offset = 0;
+  for (let i = 0; i < index; i++) {
+    offset += heightCache.get(i) || ESTIMATED_ROW_HEIGHT;
+  }
+  return offset;
+}
+
+function getIndexForOffset(offset) {
+  let accum = 0;
+  for (let i = 0; i < allMessages.length; i++) {
+    const h = heightCache.get(i) || ESTIMATED_ROW_HEIGHT;
+    if (accum + h > offset) return i;
+    accum += h;
+  }
+  return Math.max(0, allMessages.length - 1);
+}
+
+function renderVirtualMessages() {
+  const scrollTop = scrollContainer.scrollTop;
+  const viewportHeight = scrollContainer.clientHeight;
+
+  const totalHeight = getTotalHeight();
+  scrollSpacer.style.height = totalHeight + "px";
+
+  const startIdx = Math.max(0, getIndexForOffset(scrollTop) - BUFFER_COUNT);
+  const endOffset = scrollTop + viewportHeight;
+  let endIdx = Math.min(allMessages.length, getIndexForOffset(endOffset) + BUFFER_COUNT + 1);
+
+  if (startIdx === renderedRange.start && endIdx === renderedRange.end) return;
+  renderedRange = { start: startIdx, end: endIdx };
+
+  const fragment = document.createDocumentFragment();
+  for (let i = startIdx; i < endIdx; i++) {
+    const msg = allMessages[i];
+    const el = createMessageElement(msg, i);
+    fragment.appendChild(el);
+  }
+
+  messagesEl.innerHTML = "";
+  messagesEl.appendChild(fragment);
+
+  const topOffset = getOffsetForIndex(startIdx);
+  messagesEl.style.transform = `translateY(${topOffset}px)`;
+
+  requestAnimationFrame(() => {
+    let changed = false;
+    const children = messagesEl.children;
+    for (let i = 0; i < children.length; i++) {
+      const idx = startIdx + i;
+      const measuredHeight = children[i].getBoundingClientRect().height;
+      if (measuredHeight > 0 && heightCache.get(idx) !== measuredHeight) {
+        heightCache.set(idx, measuredHeight);
+        changed = true;
+      }
+    }
+    if (changed) {
+      const newTotal = getTotalHeight();
+      scrollSpacer.style.height = newTotal + "px";
+      const newTopOffset = getOffsetForIndex(startIdx);
+      messagesEl.style.transform = `translateY(${newTopOffset}px)`;
+    }
+  });
+}
+
+function createMessageElement(msg, index) {
+  const div = document.createElement("div");
+  const isSelf = msg.ed25519 === identity.publicKey;
+  div.className = `msg${isSelf ? " self" : ""}`;
+  div.dataset.index = index;
+
+  const time = new Date(msg.created_at + "Z").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const pk = msg.ed25519.slice(0, 12);
+  const tags = msg.tags.join(", ");
+
+  let bodyHtml;
+  if (typeof msg.body === "string") {
+    bodyHtml = renderMarkdown(msg.body);
+  } else if (typeof msg.body === "object" && msg.body !== null && "text" in msg.body) {
+    bodyHtml = renderMarkdown(msg.body.text);
+  } else {
+    bodyHtml = `<pre><code>${escapeHtml(JSON.stringify(msg.body, null, 2))}</code></pre>`;
+  }
+
+  const rawJson = escapeHtml(JSON.stringify(msg, null, 2));
+
+  div.innerHTML =
+    `<div class="meta">` +
+      `<span class="pk">${pk}</span>` +
+      `<span class="tags">[${escapeHtml(tags)}]</span>` +
+      `<span class="toggle">raw</span>` +
+      `<span class="time">${time}</span>` +
+    `</div>` +
+    `<div class="body">${bodyHtml}</div>` +
+    `<div class="detail${expandedIds.has(msg.id) ? " open" : ""}">${rawJson}</div>`;
+
+  div.querySelector(".toggle").onclick = (e) => {
+    e.stopPropagation();
+    const detail = div.querySelector(".detail");
+    detail.classList.toggle("open");
+    if (detail.classList.contains("open")) {
+      expandedIds.add(msg.id);
+    } else {
+      expandedIds.delete(msg.id);
+    }
+    requestAnimationFrame(() => {
+      const measuredHeight = div.getBoundingClientRect().height;
+      if (measuredHeight > 0) {
+        heightCache.set(index, measuredHeight);
+        renderVirtualMessages();
+      }
+    });
+  };
+
+  return div;
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function addMessage(msg) {
+  if (messageMap.has(msg.id)) return;
+  messageMap.set(msg.id, msg);
+
+  if (allMessages.length === 0 || msg.id > allMessages[allMessages.length - 1].id) {
+    allMessages.push(msg);
+  } else if (msg.id < allMessages[0].id) {
+    allMessages.unshift(msg);
+    const newCache = new Map();
+    for (const [k, v] of heightCache) {
+      newCache.set(k + 1, v);
+    }
+    heightCache = newCache;
+  } else {
+    let lo = 0, hi = allMessages.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (allMessages[mid].id < msg.id) lo = mid + 1;
+      else hi = mid;
+    }
+    allMessages.splice(lo, 0, msg);
+    const newCache = new Map();
+    for (const [k, v] of heightCache) {
+      newCache.set(k >= lo ? k + 1 : k, v);
+    }
+    heightCache = newCache;
+  }
+}
+
+function scrollToBottom(smooth) {
+  const totalHeight = getTotalHeight();
+  scrollContainer.scrollTo({
+    top: totalHeight,
+    behavior: smooth ? "smooth" : "instant"
+  });
+}
+
+function checkNearBottom() {
+  const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+  isUserNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+  scrollBottomBtn.classList.toggle("visible", !isUserNearBottom && allMessages.length > 0);
+}
+
+// ── Status ──────────────────────────────────────────────────────────────
+
+function updateStatus(connState) {
+  const pkShort = identity.publicKey.slice(0, 12);
+  const connHtml = connState === "connected"
+    ? `<span class="ok">&#x2022; connected</span>`
+    : `<span class="err">&#x2022; ${escapeHtml(connState)}</span>`;
+  statusTextEl.innerHTML = `<span class="id">${pkShort}</span> <span class="ch">#${escapeHtml(currentChannel)}</span> ${connHtml}`;
+}
+
+// ── History loading ─────────────────────────────────────────────────────
+
+async function loadHistoryPage(before) {
+  const p = new URLSearchParams({ limit: String(PAGE_SIZE), channel: currentChannel });
+  if (before != null) p.set("before", String(before));
+
+  const resp = await fetch(`${SERVER}/history?${p}`, {
+    headers: {
+      Authorization: `Bearer ${TOKEN}`,
+      "X-Ed25519-Pubkey": identity.publicKey,
+    },
+  });
+  if (!resp.ok) return { messages: [], has_more: false };
+  return await resp.json();
+}
+
+async function loadInitialHistory() {
+  isLoadingHistory = true;
+  loadIndicator.classList.add("visible");
+
+  // Load the most recent page using a large `before` sentinel (returns DESC order)
+  const p = new URLSearchParams({ limit: String(PAGE_SIZE), channel: currentChannel, before: "9999999999" });
+  const resp = await fetch(`${SERVER}/history?${p}`, {
+    headers: {
+      Authorization: `Bearer ${TOKEN}`,
+      "X-Ed25519-Pubkey": identity.publicKey,
+    },
+  });
+
+  if (resp.ok) {
+    const data = await resp.json();
+    // Reverse DESC results back to ASC for display
+    for (const msg of data.messages.slice().reverse()) {
+      addMessage(msg);
+    }
+    hasMoreHistory = data.has_more;
+  }
+
+  if (allMessages.length > 0) {
+    oldestLoadedId = allMessages[0].id;
+  }
+
+  renderedRange = { start: -1, end: -1 };
+  renderVirtualMessages();
+
+  requestAnimationFrame(() => {
+    scrollToBottom(false);
+    requestAnimationFrame(() => {
+      renderVirtualMessages();
+    });
+  });
+
+  isLoadingHistory = false;
+  loadIndicator.classList.remove("visible");
+}
+
+async function loadOlderMessages() {
+  if (isLoadingHistory || !hasMoreHistory || !oldestLoadedId) return;
+  isLoadingHistory = true;
+  loadIndicator.classList.add("visible");
+
+  const prevHeight = getTotalHeight();
+  const prevScrollTop = scrollContainer.scrollTop;
+
+  const data = await loadHistoryPage(oldestLoadedId);
+
+  if (data.messages.length === 0) {
+    hasMoreHistory = false;
+  } else {
+    for (const msg of data.messages) {
+      addMessage(msg);
+    }
+    oldestLoadedId = allMessages[0].id;
+    hasMoreHistory = data.has_more !== false;
+
+    renderedRange = { start: -1, end: -1 };
+    renderVirtualMessages();
+
+    requestAnimationFrame(() => {
+      const newHeight = getTotalHeight();
+      const diff = newHeight - prevHeight;
+      scrollContainer.scrollTop = prevScrollTop + diff;
+      renderVirtualMessages();
+    });
+  }
+
+  isLoadingHistory = false;
+  loadIndicator.classList.remove("visible");
+}
+
+// ── Scroll handler ──────────────────────────────────────────────────────
+
+let scrollRafPending = false;
+
+scrollContainer.addEventListener("scroll", () => {
+  checkNearBottom();
+
+  if (scrollContainer.scrollTop < 200 && hasMoreHistory && !isLoadingHistory) {
+    loadOlderMessages();
+  }
+
+  if (!scrollRafPending) {
+    scrollRafPending = true;
+    requestAnimationFrame(() => {
+      scrollRafPending = false;
+      renderVirtualMessages();
+    });
+  }
+}, { passive: true });
+
+scrollBottomBtn.onclick = () => scrollToBottom(true);
+
+// ── WebSocket ───────────────────────────────────────────────────────────
+
+const wsProto = SERVER.startsWith("https") ? "wss" : "ws";
+const wsBase = SERVER.replace(/^https?/, wsProto);
+const wsUrl = `${wsBase}/ws?token=${encodeURIComponent(TOKEN)}&pubkey=${encodeURIComponent(identity.publicKey)}`;
+
+let ws;
+
+function subscribeToChannel() {
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: "subscribe", sub_id: "current", channel: currentChannel }));
+  }
+}
+
+function unsubscribeFromChannel() {
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: "unsubscribe", sub_id: "current" }));
+  }
+}
+
+function connectWs() {
+  ws = new WebSocket(wsUrl);
+
+  ws.onopen = () => {
+    updateStatus("connected");
+    subscribeToChannel();
+  };
+
+  ws.onmessage = (ev) => {
+    const data = JSON.parse(ev.data);
+    if (data.type === "message") {
+      const wasNearBottom = isUserNearBottom;
+      addMessage(data.message);
+      renderedRange = { start: -1, end: -1 };
+      renderVirtualMessages();
+      if (wasNearBottom) {
+        requestAnimationFrame(() => scrollToBottom(true));
+      }
+    } else if (data.type === "error") {
+      console.error("server error:", data.detail);
+    }
+  };
+
+  ws.onclose = () => {
+    updateStatus("reconnecting...");
+    setTimeout(connectWs, 2000);
+  };
+}
+
+// ── Channel switching ───────────────────────────────────────────────────
+
+function switchChannel(newChannel) {
+  newChannel = newChannel.trim() || "default";
+  if (newChannel === currentChannel) return;
+
+  unsubscribeFromChannel();
+
+  currentChannel = newChannel;
+  channelInput.value = currentChannel;
+
+  allMessages = [];
+  messageMap.clear();
+  heightCache.clear();
+  expandedIds.clear();
+  renderedRange = { start: 0, end: 0 };
+  messagesEl.innerHTML = "";
+  hasMoreHistory = true;
+  oldestLoadedId = null;
+  isUserNearBottom = true;
+
+  updateStatus(ws && ws.readyState === 1 ? "connected" : "connecting...");
+
+  loadInitialHistory().then(() => {
+    subscribeToChannel();
+  });
+}
+
+// ── Input handling ──────────────────────────────────────────────────────
+
+function isJsonMode() {
+  return textInput.value.trimStart().startsWith("{");
+}
+
+textInput.addEventListener("input", () => {
+  modeHint.textContent = isJsonMode() ? "json" : "text";
+  textInput.style.height = "auto";
+  textInput.style.height = Math.min(textInput.scrollHeight, 160) + "px";
+});
+
+async function sendMessage() {
+  const raw = textInput.value.trim();
+  if (!raw || !ws || ws.readyState !== 1) return;
+
+  let msg;
+  if (isJsonMode()) {
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      console.error("invalid JSON:", e.message);
+      return;
+    }
+    if (!parsed.tags || !parsed.body) {
+      console.error("JSON message must have 'tags' and 'body' fields");
+      return;
+    }
+    msg = {};
+    msg.channel = parsed.channel || currentChannel;
+    msg.tags = parsed.tags;
+    msg.body = parsed.body;
+    if (parsed.allow) msg.allow = parsed.allow;
+    if (parsed.disallow) msg.disallow = parsed.disallow;
+  } else {
+    msg = {
+      channel: currentChannel,
+      tags: ["debug"],
+      body: { text: raw },
+    };
+  }
+
+  const sig = signMessage(identity.secretKey, msg);
+
+  ws.send(JSON.stringify({
+    type: "publish",
+    ...msg,
+    signature: sig,
+  }));
+
+  textInput.value = "";
+  textInput.style.height = "auto";
+  modeHint.textContent = "text";
+}
+
+sendBtn.onclick = sendMessage;
+
+textInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !isJsonMode()) {
+    e.preventDefault();
+    sendMessage();
+  } else if (e.key === "Enter" && e.ctrlKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+channelSwitchBtn.onclick = () => switchChannel(channelInput.value);
+channelInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") switchChannel(channelInput.value);
+});
+
+// Handle resize (e.g. keyboard open/close on mobile)
+let resizeRaf;
+window.addEventListener("resize", () => {
+  if (resizeRaf) cancelAnimationFrame(resizeRaf);
+  resizeRaf = requestAnimationFrame(() => {
+    renderedRange = { start: -1, end: -1 };
+    renderVirtualMessages();
+    if (isUserNearBottom) scrollToBottom(false);
+  });
+});
+
+// Handle visual viewport changes (iOS keyboard)
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", () => {
+    document.body.style.height = window.visualViewport.height + "px";
+    if (isUserNearBottom) {
+      requestAnimationFrame(() => scrollToBottom(false));
+    }
+  });
+}
+
+// ── Boot ────────────────────────────────────────────────────────────────
+
+updateStatus("connecting...");
+await loadInitialHistory();
+connectWs();
+</script>
+</body>
+</html>
