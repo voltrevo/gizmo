@@ -841,10 +841,10 @@
 </div>
 
 <script type="module">
-import * as ed from "https://esm.sh/@noble/ed25519@3";
-import { sha512 } from "https://esm.sh/@noble/hashes@2/sha2.js";
+import * as ed from "https://esm.sh/@noble/ed25519@2";
+import { sha512 } from "https://esm.sh/@noble/hashes@1/sha512.js";
 
-ed.hashes.sha512 = sha512;
+ed.utils.sha512Sync = sha512;
 
 const { bytesToHex, hexToBytes } = ed.etc;
 
@@ -856,7 +856,7 @@ function loadOrCreateIdentity() {
     const pub_ = bytesToHex(ed.getPublicKey(hexToBytes(sk)));
     return { secretKey: sk, publicKey: pub_ };
   }
-  const secretKey = ed.utils.randomSecretKey();
+  const secretKey = ed.utils.randomPrivateKey();
   const publicKey = ed.getPublicKey(secretKey);
   const skHex = bytesToHex(secretKey);
   const pkHex = bytesToHex(publicKey);
