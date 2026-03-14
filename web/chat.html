@@ -650,14 +650,14 @@ function createProceduralAvatar(seed) {
     { ao:152, ho:208, bs:72, as:88, hs:82, bl:57, al:66, hl:73 },
     { ao:82,  ho:198, bs:75, as:89, hs:81, bl:56, al:65, hl:74 },
   ];
-  const s = SCHEMES[(hash >> 4) % SCHEMES.length];
-  const ah = (hue + s.ao + ((hash >> 9) % 10) - 5 + 360) % 360;
-  const hh = (hue + s.ho + ((hash >> 13) % 12) - 6 + 360) % 360;
+  const s = SCHEMES[(hash >>> 4) % SCHEMES.length];
+  const ah = (hue + s.ao + ((hash >>> 9) % 10) - 5 + 360) % 360;
+  const hh = (hue + s.ho + ((hash >>> 13) % 12) - 6 + 360) % 360;
   return {
     pattern,
-    base:      toHsl(hue, s.bs + ((hash >> 8)  % 8), s.bl + ((hash >> 20) % 5)),
-    accent:    toHsl(ah,  s.as + ((hash >> 12) % 6), s.al + ((hash >> 24) % 5)),
-    highlight: toHsl(hh,  s.hs + ((hash >> 16) % 7), s.hl + ((hash >> 28) % 4)),
+    base:      toHsl(hue, s.bs + ((hash >>> 8)  % 8), s.bl + ((hash >>> 20) % 5)),
+    accent:    toHsl(ah,  s.as + ((hash >>> 12) % 6), s.al + ((hash >>> 24) % 5)),
+    highlight: toHsl(hh,  s.hs + ((hash >>> 16) % 7), s.hl + ((hash >>> 28) % 4)),
   };
 }
 
