@@ -6,31 +6,35 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#161b22">
+<meta name="theme-color" content="#0a0b0d">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <title>gizmo</title>
 <style>
   :root {
-    --bg-primary: #0d1117;
-    --bg-secondary: #161b22;
-    --bg-tertiary: #1c2128;
-    --bg-input: #0d1117;
-    --border: #30363d;
-    --border-light: #21262d;
-    --text-primary: #e6edf3;
-    --text-secondary: #8b949e;
-    --text-muted: #6e7681;
-    --accent-blue: #58a6ff;
-    --accent-green: #3fb950;
-    --accent-orange: #d29922;
-    --accent-red: #f85149;
-    --accent-purple: #bc8cff;
-    --msg-self-border: #58a6ff;
-    --msg-other-border: #30363d;
-    --radius: 8px;
-    --safe-bottom: env(safe-area-inset-bottom, 0px);
-    --safe-top: env(safe-area-inset-top, 0px);
+    --surface-page:    #0a0b0d;
+    --surface-panel:   rgba(18, 20, 24, 0.97);
+    --surface-raised:  rgba(26, 29, 34, 0.95);
+    --surface-muted:   rgba(255,255,255,0.04);
+    --border:          rgba(255,255,255,0.07);
+    --border-strong:   rgba(255,255,255,0.12);
+    --text-primary:    #e2e8f0;
+    --text-secondary:  #7d8a99;
+    --text-muted:      #4a5568;
+    --accent-blue:     #5b9cf6;
+    --accent-green:    #3fb97a;
+    --accent-orange:   #e09c40;
+    --accent-red:      #f05060;
+    --accent-purple:   #a97ef0;
+    --radius:          10px;
+    --font-sans:       'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono:       'IBM Plex Mono', 'SF Mono', 'Fira Code', monospace;
+    --safe-bottom:     env(safe-area-inset-bottom, 0px);
+    --safe-top:        env(safe-area-inset-top, 0px);
+    --avatar-size:     34px;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -42,8 +46,8 @@
   }
 
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-    background: var(--bg-primary);
+    font-family: var(--font-sans);
+    background: var(--surface-page);
     color: var(--text-primary);
     display: flex;
     flex-direction: column;
@@ -54,7 +58,7 @@
   #status {
     padding: 10px 16px;
     padding-top: calc(10px + var(--safe-top));
-    background: var(--bg-secondary);
+    background: var(--surface-panel);
     font-size: 13px;
     border-bottom: 1px solid var(--border);
     display: flex;
@@ -63,6 +67,8 @@
     gap: 8px;
     flex-shrink: 0;
     z-index: 10;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
   }
 
   #status .left {
@@ -75,15 +81,16 @@
 
   #status-text {
     font-size: 12px;
+    font-family: var(--font-mono);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  #status .id { color: var(--accent-blue); }
-  #status .ok { color: var(--accent-green); }
+  #status .id  { color: var(--accent-blue); }
+  #status .ok  { color: var(--accent-green); }
   #status .err { color: var(--accent-red); }
-  #status .ch { color: var(--accent-orange); }
+  #status .ch  { color: var(--accent-orange); }
 
   #channel-controls {
     display: flex;
@@ -93,23 +100,27 @@
   }
 
   #channel-controls input {
-    background: var(--bg-input);
-    border: 1px solid var(--border);
+    background: var(--surface-muted);
+    border: 1px solid var(--border-strong);
     color: var(--text-primary);
     padding: 6px 10px;
-    font-family: monospace;
+    font-family: var(--font-mono);
     font-size: 13px;
     border-radius: var(--radius);
     width: 100px;
     -webkit-appearance: none;
+    outline: none;
   }
 
+  #channel-controls input:focus { border-color: var(--accent-blue); }
+
   #channel-controls button {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
+    background: var(--surface-raised);
+    border: 1px solid var(--border-strong);
     color: var(--text-primary);
     padding: 6px 12px;
     font-size: 13px;
+    font-family: var(--font-sans);
     cursor: pointer;
     border-radius: var(--radius);
     min-height: 34px;
@@ -147,77 +158,122 @@
 
   #load-indicator.visible { display: block; }
 
-  /* ── Message bubble ────────────────────────── */
+  /* ── Message row ────────────────────────────── */
   .msg {
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--border-light);
+    display: flex;
+    gap: 10px;
+    padding: 8px 16px;
     position: relative;
   }
 
+  .msg:not(.grouped) { padding-top: 12px; }
+  .msg.grouped { padding-top: 2px; }
+
+  .avatar-col {
+    width: var(--avatar-size);
+    flex-shrink: 0;
+    display: flex;
+    align-items: flex-start;
+    padding-top: 1px;
+  }
+
+  .avatar-col canvas {
+    width: var(--avatar-size);
+    height: var(--avatar-size);
+    border-radius: 50%;
+    display: block;
+  }
+
+  .msg-content {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* ── Message meta ───────────────────────────── */
   .msg .meta {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 4px;
+    align-items: baseline;
+    gap: 7px;
+    margin-bottom: 3px;
     font-size: 12px;
-    color: var(--text-secondary);
     flex-wrap: wrap;
   }
 
-  .msg .pk {
-    color: var(--accent-blue);
-    font-family: monospace;
-    font-size: 11px;
+  .msg .name {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-primary);
   }
 
-  .msg.self .pk { color: var(--accent-green); }
-  .msg.self .pk::after { content: " (you)"; color: var(--text-muted); font-family: inherit; }
+  .msg.self .name { color: var(--accent-blue); }
+
+  .msg .name-you {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 400;
+  }
 
   .msg .tags {
     color: var(--accent-orange);
     font-size: 11px;
-    font-family: monospace;
+    font-family: var(--font-mono);
   }
 
   .msg .time {
     color: var(--text-muted);
     font-size: 11px;
+    font-family: var(--font-mono);
     margin-left: auto;
   }
 
-  .msg .body {
-    font-size: 14px;
-    line-height: 1.55;
-    word-break: break-word;
-    overflow-wrap: break-word;
+  .msg .toggle {
+    cursor: pointer;
+    user-select: none;
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    padding: 2px 6px;
+    border-radius: 4px;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
 
-  /* ── Markdown rendering ────────────────────── */
+  .msg .toggle:active { background: var(--surface-raised); }
+
+  /* ── Message body ───────────────────────────── */
+  .msg .body {
+    font-size: 14px;
+    line-height: 1.6;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    color: var(--text-primary);
+  }
+
   .msg .body p { margin-bottom: 8px; }
   .msg .body p:last-child { margin-bottom: 0; }
-  .msg .body strong { font-weight: 600; color: var(--text-primary); }
+  .msg .body strong { font-weight: 600; }
   .msg .body em { font-style: italic; color: var(--text-secondary); }
 
   .msg .body code {
-    font-family: 'SF Mono', 'Fira Code', monospace;
-    font-size: 0.9em;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    background: var(--surface-raised);
+    border: 1px solid var(--border-strong);
     padding: 1px 5px;
     border-radius: 4px;
     color: var(--accent-purple);
   }
 
   .msg .body pre {
-    background: var(--bg-secondary);
+    background: var(--surface-panel);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 8px;
     padding: 12px;
     margin: 8px 0;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-    font-size: 13px;
-    line-height: 1.45;
+    font-size: 12.5px;
+    line-height: 1.5;
   }
 
   .msg .body pre code {
@@ -247,9 +303,9 @@
     margin: 12px 0 6px;
     font-weight: 600;
   }
-  .msg .body h1 { font-size: 1.3em; }
-  .msg .body h2 { font-size: 1.15em; }
-  .msg .body h3 { font-size: 1.05em; }
+  .msg .body h1 { font-size: 1.25em; }
+  .msg .body h2 { font-size: 1.1em; }
+  .msg .body h3 { font-size: 1em; }
 
   .msg .body a {
     color: var(--accent-blue);
@@ -263,29 +319,16 @@
     margin: 10px 0;
   }
 
-  /* ── Raw detail ────────────────────────────── */
-  .msg .toggle {
-    cursor: pointer;
-    user-select: none;
-    font-size: 11px;
-    color: var(--text-muted);
-    padding: 4px 8px;
-    border-radius: 4px;
-    touch-action: manipulation;
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  .msg .toggle:active { background: var(--bg-tertiary); }
-
+  /* ── Raw detail ─────────────────────────────── */
   .msg .detail {
     display: none;
     margin-top: 8px;
     padding: 10px;
-    background: var(--bg-secondary);
+    background: var(--surface-panel);
     border: 1px solid var(--border);
-    border-radius: 6px;
-    font-size: 12px;
-    font-family: monospace;
+    border-radius: 8px;
+    font-size: 11.5px;
+    font-family: var(--font-mono);
     color: var(--text-secondary);
     white-space: pre-wrap;
     word-break: break-word;
@@ -296,26 +339,28 @@
 
   .msg .detail.open { display: block; }
 
-  /* ── Input bar ─────────────────────────────── */
+  /* ── Input bar ──────────────────────────────── */
   #input-bar {
     display: flex;
     padding: 10px 12px;
     padding-bottom: calc(10px + var(--safe-bottom));
-    background: var(--bg-secondary);
+    background: var(--surface-panel);
     border-top: 1px solid var(--border);
     gap: 8px;
     align-items: flex-end;
     flex-shrink: 0;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
   }
 
   #text-input {
     flex: 1;
-    background: var(--bg-input);
-    border: 1px solid var(--border);
+    background: var(--surface-raised);
+    border: 1px solid var(--border-strong);
     color: var(--text-primary);
     padding: 10px 14px;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-    font-size: 16px; /* prevents iOS zoom */
+    font-family: var(--font-sans);
+    font-size: 16px;
     border-radius: var(--radius);
     resize: none;
     min-height: 42px;
@@ -326,13 +371,8 @@
     transition: border-color 0.15s;
   }
 
-  #text-input:focus {
-    border-color: var(--accent-blue);
-  }
-
-  #text-input::placeholder {
-    color: var(--text-muted);
-  }
+  #text-input:focus { border-color: var(--accent-blue); }
+  #text-input::placeholder { color: var(--text-muted); }
 
   .input-actions {
     display: flex;
@@ -342,12 +382,13 @@
   }
 
   #send-btn {
-    background: #1f6feb;
+    background: #2563eb;
     border: none;
     color: #fff;
     padding: 10px 18px;
-    font-size: 15px;
-    font-weight: 500;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: var(--font-sans);
     cursor: pointer;
     border-radius: var(--radius);
     min-height: 42px;
@@ -357,16 +398,17 @@
     transition: background 0.15s;
   }
 
-  #send-btn:active { background: #1a5dc7; }
+  #send-btn:active { background: #1d4ed8; }
 
   #mode-hint {
     font-size: 10px;
     color: var(--text-muted);
+    font-family: var(--font-mono);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
 
-  /* ── Config screen ─────────────────────────── */
+  /* ── Config screen ──────────────────────────── */
   #config {
     padding: 24px 20px;
     max-width: 400px;
@@ -374,36 +416,35 @@
   }
 
   #config h2 {
-    font-size: 18px;
+    font-size: 20px;
+    font-weight: 600;
     margin-bottom: 16px;
-    color: var(--text-primary);
   }
 
   #config input {
-    background: var(--bg-input);
-    border: 1px solid var(--border);
+    background: var(--surface-raised);
+    border: 1px solid var(--border-strong);
     color: var(--text-primary);
     padding: 12px 14px;
-    font-family: inherit;
+    font-family: var(--font-sans);
     font-size: 16px;
     width: 100%;
     margin: 6px 0;
     border-radius: var(--radius);
     -webkit-appearance: none;
+    outline: none;
   }
 
-  #config input:focus {
-    outline: none;
-    border-color: var(--accent-blue);
-  }
+  #config input:focus { border-color: var(--accent-blue); }
 
   #config button {
-    background: #1f6feb;
+    background: #2563eb;
     border: none;
     color: #fff;
     padding: 12px 20px;
     font-size: 16px;
-    font-weight: 500;
+    font-weight: 600;
+    font-family: var(--font-sans);
     cursor: pointer;
     margin-top: 12px;
     border-radius: var(--radius);
@@ -420,7 +461,7 @@
     margin-bottom: 2px;
   }
 
-  /* ── Scroll to bottom FAB ──────────────────── */
+  /* ── Scroll to bottom FAB ───────────────────── */
   #scroll-bottom {
     position: absolute;
     bottom: 80px;
@@ -428,8 +469,8 @@
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
+    background: var(--surface-raised);
+    border: 1px solid var(--border-strong);
     color: var(--text-secondary);
     font-size: 18px;
     cursor: pointer;
@@ -439,14 +480,14 @@
     z-index: 5;
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
   }
 
   #scroll-bottom.visible { display: flex; }
 
-  /* ── Responsive ────────────────────────────── */
+  /* ── Responsive ─────────────────────────────── */
   @media (min-width: 768px) {
-    .msg { padding: 10px 24px; }
+    .msg { padding: 8px 24px; }
     #input-bar { padding: 12px 24px; }
     #status { padding: 10px 24px; }
   }
@@ -489,7 +530,7 @@ ed.hashes.sha512 = sha512;
 
 const { bytesToHex, hexToBytes } = ed.etc;
 
-// ── Identity ────────────────────────────────────────────────────────────
+// ── Identity ─────────────────────────────────────────────────────────────
 
 function loadOrCreateIdentity() {
   let sk = localStorage.getItem("gizmo_secret_key");
@@ -516,7 +557,7 @@ function signMessage(sk, msg) {
   return bytesToHex(sig);
 }
 
-// ── Config ──────────────────────────────────────────────────────────────
+// ── Config ───────────────────────────────────────────────────────────────
 
 const params = new URLSearchParams(location.search);
 const SERVER = params.get("server") || localStorage.getItem("gizmo_server") || location.origin;
@@ -528,7 +569,7 @@ if (params.get("token")) localStorage.setItem("gizmo_token", TOKEN);
 if (!TOKEN) {
   document.getElementById("messages").innerHTML = `
     <div id="config">
-      <h2>gizmo debug</h2>
+      <h2>gizmo</h2>
       <label for="cfg-server">Server URL</label>
       <input id="cfg-server" placeholder="https://gizmo.example.com" value="${escapeHtml(SERVER)}">
       <label for="cfg-token">Bearer token</label>
@@ -548,75 +589,297 @@ if (!TOKEN) {
   throw new Error("need config");
 }
 
-// ── Markdown renderer (lightweight) ─────────────────────────────────────
+// ── Procedural avatars (ported from siliconjungle/ambient-ai-chat) ────────
+
+const DESCRIPTOR_OPTIONS = [
+  "Amber","Arc","Ash","Aster","Bold","Brisk","Bright","Cloud","Cobalt","Comet",
+  "Copper","Crisp","Dapper","Dawn","Drift","Echo","Ember","Fable","Frost","Gleam",
+  "Glint","Golden","Harbor","Hazel","Indigo","Ivory","Jade","Juniper","Lively",
+  "Lucky","Lunar","Maple","Mellow","Misty","Nova","Orbit","Pebble","Plucky",
+  "Quiet","Radiant","River","Rustic","Saffron","Silver","Solar","Spry","Storm",
+  "Sunny","Velvet","Willow"
+];
+
+const ANIMAL_OPTIONS = [
+  "Aardvark","Albatross","Badger","Beaver","Bison","Bobcat","Caracal","Cougar",
+  "Crane","Crow","Dolphin","Falcon","Ferret","Finch","Fox","Gecko","Heron",
+  "Jaguar","Koala","Lark","Lemur","Leopard","Lynx","Manatee","Marten","Moose",
+  "Narwhal","Newt","Ocelot","Otter","Owl","Panda","Panther","Parrot","Pika",
+  "Puffin","Quokka","Raven","Seal","Serval","Sparrow","Stoat","Swift","Tiger",
+  "Toucan","Turtle","Viper","Walrus","Wolf","Wren"
+];
+
+function hashString(value) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+function seededRandom(seed) {
+  let value = seed >>> 0;
+  return () => {
+    value += 0x6d2b79f5;
+    let n = value;
+    n = Math.imul(n ^ (n >>> 15), n | 1);
+    n ^= n + Math.imul(n ^ (n >>> 7), n | 61);
+    return ((n ^ (n >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function createRandomUsername(pubkey) {
+  const hash = hashString(pubkey);
+  const rng = seededRandom(hash);
+  const d = DESCRIPTOR_OPTIONS[Math.floor(rng() * DESCRIPTOR_OPTIONS.length)];
+  const a = ANIMAL_OPTIONS[Math.floor(rng() * ANIMAL_OPTIONS.length)];
+  return `${d} ${a}`;
+}
+
+function toHsl(h, s, l) { return `hsl(${Math.round(h)} ${s}% ${l}%)`; }
+
+function createProceduralAvatar(seed) {
+  const hash = hashString(seed);
+  const hue = hash % 360;
+  const PATTERNS = ["bands","bloom","grid","orbit","slice"];
+  const pattern = PATTERNS[hash % PATTERNS.length];
+  const SCHEMES = [
+    { ao:116, ho:236, bs:76, as:90, hs:84, bl:56, al:63, hl:72 },
+    { ao:178, ho:24,  bs:78, as:92, hs:82, bl:55, al:64, hl:74 },
+    { ao:28,  ho:56,  bs:74, as:86, hs:80, bl:58, al:68, hl:76 },
+    { ao:152, ho:208, bs:72, as:88, hs:82, bl:57, al:66, hl:73 },
+    { ao:82,  ho:198, bs:75, as:89, hs:81, bl:56, al:65, hl:74 },
+  ];
+  const s = SCHEMES[(hash >> 4) % SCHEMES.length];
+  const ah = (hue + s.ao + ((hash >> 9) % 10) - 5 + 360) % 360;
+  const hh = (hue + s.ho + ((hash >> 13) % 12) - 6 + 360) % 360;
+  return {
+    pattern,
+    base:      toHsl(hue, s.bs + ((hash >> 8)  % 8), s.bl + ((hash >> 20) % 5)),
+    accent:    toHsl(ah,  s.as + ((hash >> 12) % 6), s.al + ((hash >> 24) % 5)),
+    highlight: toHsl(hh,  s.hs + ((hash >> 16) % 7), s.hl + ((hash >> 28) % 4)),
+  };
+}
+
+// WebGL2 avatar renderer
+
+function createAvatarRenderer() {
+  const canvas = document.createElement("canvas");
+  const gl = canvas.getContext("webgl2", {
+    alpha: true, antialias: false, depth: false,
+    powerPreference: "low-power", premultipliedAlpha: false,
+    preserveDrawingBuffer: true, stencil: false
+  });
+  if (!gl) return null;
+
+  const vert = `#version 300 es
+  precision highp float;
+  in vec2 a_position;
+  out vec2 v_uv;
+  void main() {
+    v_uv = a_position * 0.5 + 0.5;
+    gl_Position = vec4(a_position, 0.0, 1.0);
+  }`;
+
+  const frag = `#version 300 es
+  precision highp float;
+  in vec2 v_uv;
+  out vec4 outColor;
+  uniform float u_seed, u_variant;
+  uniform vec3 u_colorA, u_colorB, u_colorC, u_colorD;
+  uniform vec2 u_point0, u_point1, u_point2, u_point3;
+
+  float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1,311.7)) + u_seed*0.173) * 43758.5453123);
+  }
+  float noise(vec2 p) {
+    vec2 i=floor(p), f=fract(p), u=f*f*(3.0-2.0*f);
+    return mix(mix(hash(i),hash(i+vec2(1,0)),u.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),u.x),u.y);
+  }
+  vec3 gradientMesh(vec2 p) {
+    float w0=1.0/(0.05+pow(distance(p,u_point0),1.45));
+    float w1=1.0/(0.05+pow(distance(p,u_point1),1.45));
+    float w2=1.0/(0.05+pow(distance(p,u_point2),1.45));
+    float w3=1.0/(0.05+pow(distance(p,u_point3),1.45));
+    float s=w0+w1+w2+w3;
+    return (u_colorA*w0+u_colorB*w1+u_colorC*w2+u_colorD*w3)/s;
+  }
+  mat2 rot2d(float a) { float s=sin(a),c=cos(a); return mat2(c,-s,s,c); }
+  void main() {
+    vec2 uv=v_uv, centered=uv*2.0-1.0;
+    float radius=length(centered);
+    float orb=1.0-smoothstep(0.86,1.0,radius);
+    if (orb<=0.0) { outColor=vec4(0); return; }
+    float z=sqrt(max(0.0,1.0-radius*radius));
+    vec3 normal=normalize(vec3(centered*vec2(1.04,0.98),z));
+    float angle=atan(centered.y,centered.x);
+    float sp=u_seed*0.013+u_variant*0.37;
+    vec2 fA=rot2d(0.45+u_variant*0.08)*centered*2.6;
+    vec2 fB=rot2d(-0.72-u_variant*0.05)*centered*3.4;
+    float nA=noise(fA+vec2(sp,-sp*0.7));
+    float nB=noise(fB+vec2(-sp*0.6,sp*0.9));
+    float wave=0.5+0.5*sin(angle*(5.0+u_variant*0.45)+nA*4.8+radius*8.0+sp*11.0);
+    float ripple=0.5+0.5*cos((nB*3.4+normal.y*2.1-normal.x*1.6)*3.2+sp*7.0);
+    vec3 base=gradientMesh(uv+normal.xy*0.11);
+    vec3 irid=mix(mix(u_colorA,u_colorB,wave),mix(u_colorC,u_colorD,ripple),0.56);
+    vec3 color=mix(base,irid,0.52);
+    float coreGlow=pow(max(normal.z,0.0),1.8);
+    float fresnel=pow(1.0-max(normal.z,0.0),2.7);
+    float hi=pow(max(dot(normal,normalize(vec3(-0.58,0.64,1.0))),0.0),24.0);
+    float hi2=pow(max(dot(normal,normalize(vec3(0.46,-0.22,0.95))),0.0),12.0);
+    color*=0.62+coreGlow*0.92;
+    color+=mix(u_colorC,vec3(1),0.45)*hi*0.7;
+    color+=mix(u_colorB,vec3(1),0.28)*hi2*0.22;
+    color+=mix(u_colorD,u_colorB,0.55)*fresnel*0.48;
+    color+=(1.0-smoothstep(0.0,0.78,radius))*0.1*mix(u_colorA,u_colorC,0.5);
+    color+=(hash(gl_FragCoord.xy+u_seed*41.0)-0.5)*0.035;
+    color=mix(vec3(0.045,0.048,0.06),color,orb);
+    outColor=vec4(clamp(color,0.0,1.0),orb);
+  }`;
+
+  function compileShader(type, src) {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src); gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) { gl.deleteShader(sh); return null; }
+    return sh;
+  }
+
+  const vs = compileShader(gl.VERTEX_SHADER, vert);
+  const fs = compileShader(gl.FRAGMENT_SHADER, frag);
+  if (!vs || !fs) return null;
+
+  const prog = gl.createProgram();
+  gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+  gl.deleteShader(vs); gl.deleteShader(fs);
+
+  const buf = gl.createBuffer(), vao = gl.createVertexArray();
+  const posLoc = gl.getAttribLocation(prog, "a_position");
+  gl.bindVertexArray(vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,3,-1,-1,3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(posLoc);
+  gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null); gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+  const U = name => gl.getUniformLocation(prog, name);
+  const u = { seed:U("u_seed"), variant:U("u_variant"),
+    cA:U("u_colorA"), cB:U("u_colorB"), cC:U("u_colorC"), cD:U("u_colorD"),
+    p0:U("u_point0"), p1:U("u_point1"), p2:U("u_point2"), p3:U("u_point3") };
+
+  function parseHsl(val) {
+    const m = val.match(/hsl\(([-\d.]+)\s+([-\d.]+)%\s+([-\d.]+)%\)/);
+    if (!m) return [0.5,0.5,0.5];
+    const h=Number(m[1]), s=Number(m[2])/100, l=Number(m[3])/100;
+    const nh = (((h%360)+360)%360)/360;
+    if (s===0) return [l,l,l];
+    const q = l<0.5 ? l*(1+s) : l+s-l*s, p=2*l-q;
+    function hue2rgb(p,q,t) {
+      let x=t; if(x<0)x+=1; if(x>1)x-=1;
+      if(x<1/6) return p+(q-p)*6*x;
+      if(x<1/2) return q;
+      if(x<2/3) return p+(q-p)*(2/3-x)*6;
+      return p;
+    }
+    return [hue2rgb(p,q,nh+1/3),hue2rgb(p,q,nh),hue2rgb(p,q,nh-1/3)];
+  }
+
+  function mixRgb(a,b,t) { return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t]; }
+  function darken(c,a) { return [Math.max(0,c[0]*(1-a)), Math.max(0,c[1]*(1-a)), Math.max(0,c[2]*(1-a))]; }
+  function saturate(c,a) {
+    const avg=(c[0]+c[1]+c[2])/3;
+    return [Math.min(1,Math.max(0,avg+(c[0]-avg)*a)), Math.min(1,Math.max(0,avg+(c[1]-avg)*a)), Math.min(1,Math.max(0,avg+(c[2]-avg)*a))];
+  }
+
+  const VARIANTS = { bands:0, bloom:1, grid:2, orbit:3, slice:4 };
+
+  return {
+    render(avatar, seed, size) {
+      const sh = hashString(`${seed}:${avatar.pattern}`);
+      const rng = seededRandom(sh);
+      const base = parseHsl(avatar.base), acc = parseHsl(avatar.accent), hi = parseHsl(avatar.highlight);
+      const bridge = mixRgb(base, acc, 0.38);
+      const shadow = darken(saturate(bridge, 1.18), 0.42);
+      const p0=[0.18+rng()*0.18, 0.16+rng()*0.2];
+      const p1=[0.72-rng()*0.12, 0.16+rng()*0.2];
+      const p2=[0.2+rng()*0.16,  0.72-rng()*0.12];
+      const p3=[0.7-rng()*0.14,  0.72-rng()*0.12];
+      switch(avatar.pattern) {
+        case "bands": p0[1]-=0.06; p1[1]+=0.04; p2[1]-=0.02; break;
+        case "bloom": p0[0]-=0.04; p1[0]+=0.02; p2[0]+=0.03; p3[0]-=0.02; break;
+        case "grid":  p0[0]-=0.05; p0[1]-=0.03; p3[0]+=0.03; p3[1]+=0.02; break;
+        case "orbit": p1[0]+=0.05; p2[0]-=0.03; p2[1]+=0.03; break;
+        case "slice": p0[0]+=0.05; p1[1]-=0.04; p3[1]+=0.04; break;
+      }
+      canvas.width = size; canvas.height = size;
+      gl.viewport(0,0,size,size);
+      gl.useProgram(prog); gl.bindVertexArray(vao);
+      gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND);
+      gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.uniform1f(u.seed, sh % 10000);
+      gl.uniform1f(u.variant, VARIANTS[avatar.pattern] ?? 0);
+      gl.uniform3fv(u.cA, base); gl.uniform3fv(u.cB, acc);
+      gl.uniform3fv(u.cC, hi);   gl.uniform3fv(u.cD, shadow);
+      gl.uniform2fv(u.p0, p0); gl.uniform2fv(u.p1, p1);
+      gl.uniform2fv(u.p2, p2); gl.uniform2fv(u.p3, p3);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.bindVertexArray(null);
+      return canvas.toDataURL("image/png");
+    }
+  };
+}
+
+let avatarRenderer = null;
+const avatarDataUrlCache = new Map();
+
+function getAvatarDataUrl(pubkey) {
+  if (avatarDataUrlCache.has(pubkey)) return avatarDataUrlCache.get(pubkey);
+  if (!avatarRenderer) avatarRenderer = createAvatarRenderer();
+  if (!avatarRenderer) return null;
+  const avatar = createProceduralAvatar(pubkey);
+  const url = avatarRenderer.render(avatar, pubkey, 68); // 34px @ 2x
+  avatarDataUrlCache.set(pubkey, url);
+  return url;
+}
+
+const usernameCache = new Map();
+function getUsername(pubkey) {
+  if (usernameCache.has(pubkey)) return usernameCache.get(pubkey);
+  const name = createRandomUsername(pubkey);
+  usernameCache.set(pubkey, name);
+  return name;
+}
+
+// ── Markdown renderer (lightweight) ──────────────────────────────────────
 
 function renderMarkdown(text) {
   if (typeof text !== "string") return escapeHtml(String(text));
-
-  // Normalize line endings
   let s = text.replace(/\r\n/g, "\n");
-
-  // Escape HTML first
-  s = s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-  // Code blocks (``` ... ```)
-  s = s.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-    return `<pre><code>${code.replace(/\n$/, "")}</code></pre>`;
-  });
-
-  // Inline code
+  s = s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  s = s.replace(/```(\w*)\n([\s\S]*?)```/g, (_,_l,code) => `<pre><code>${code.replace(/\n$/,"")}</code></pre>`);
   s = s.replace(/`([^`\n]+)`/g, "<code>$1</code>");
-
-  // Headings
-  s = s.replace(/^######\s+(.+)$/gm, "<h6>$1</h6>");
-  s = s.replace(/^#####\s+(.+)$/gm, "<h5>$1</h5>");
-  s = s.replace(/^####\s+(.+)$/gm, "<h4>$1</h4>");
-  s = s.replace(/^###\s+(.+)$/gm, "<h3>$1</h3>");
-  s = s.replace(/^##\s+(.+)$/gm, "<h2>$1</h2>");
-  s = s.replace(/^#\s+(.+)$/gm, "<h1>$1</h1>");
-
-  // Horizontal rules
-  s = s.replace(/^---+$/gm, "<hr>");
-
-  // Blockquotes
-  s = s.replace(/^&gt;\s?(.*)$/gm, "<blockquote>$1</blockquote>");
-  // Merge adjacent blockquotes
-  s = s.replace(/<\/blockquote>\n<blockquote>/g, "\n");
-
-  // Bold
-  s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  s = s.replace(/__(.+?)__/g, "<strong>$1</strong>");
-
-  // Italic
-  s = s.replace(/\*(.+?)\*/g, "<em>$1</em>");
-  s = s.replace(/_(.+?)_/g, "<em>$1</em>");
-
-  // Strikethrough
-  s = s.replace(/~~(.+?)~~/g, "<del>$1</del>");
-
-  // Links [text](url)
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-
-  // Unordered lists
-  s = s.replace(/^[\*\-]\s+(.+)$/gm, "<li>$1</li>");
-  s = s.replace(/((?:<li>.*<\/li>\n?)+)/g, "<ul>$1</ul>");
-
-  // Ordered lists
-  s = s.replace(/^\d+\.\s+(.+)$/gm, "<li>$1</li>");
-
-  // Paragraphs: wrap remaining loose lines
+  s = s.replace(/^######\s+(.+)$/gm,"<h6>$1</h6>").replace(/^#####\s+(.+)$/gm,"<h5>$1</h5>")
+       .replace(/^####\s+(.+)$/gm,"<h4>$1</h4>").replace(/^###\s+(.+)$/gm,"<h3>$1</h3>")
+       .replace(/^##\s+(.+)$/gm,"<h2>$1</h2>").replace(/^#\s+(.+)$/gm,"<h1>$1</h1>");
+  s = s.replace(/^---+$/gm,"<hr>");
+  s = s.replace(/^&gt;\s?(.*)$/gm,"<blockquote>$1</blockquote>").replace(/<\/blockquote>\n<blockquote>/g,"\n");
+  s = s.replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>").replace(/__(.+?)__/g,"<strong>$1</strong>");
+  s = s.replace(/\*(.+?)\*/g,"<em>$1</em>").replace(/_(.+?)_/g,"<em>$1</em>");
+  s = s.replace(/~~(.+?)~~/g,"<del>$1</del>");
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+  s = s.replace(/^[\*\-]\s+(.+)$/gm,"<li>$1</li>").replace(/((?:<li>.*<\/li>\n?)+)/g,"<ul>$1</ul>");
+  s = s.replace(/^\d+\.\s+(.+)$/gm,"<li>$1</li>");
   const blocks = s.split(/\n\n+/);
-  s = blocks.map(block => {
-    const trimmed = block.trim();
-    if (!trimmed) return "";
-    if (/^<(h[1-6]|pre|ul|ol|blockquote|hr|li|div)/.test(trimmed)) return trimmed;
-    return `<p>${trimmed.replace(/\n/g, "<br>")}</p>`;
+  s = blocks.map(b => {
+    const t = b.trim();
+    if (!t) return "";
+    if (/^<(h[1-6]|pre|ul|ol|blockquote|hr|li|div)/.test(t)) return t;
+    return `<p>${t.replace(/\n/g,"<br>")}</p>`;
   }).join("\n");
-
   return s;
 }
 
-// ── App ─────────────────────────────────────────────────────────────────
+// ── App ──────────────────────────────────────────────────────────────────
 
 const identity = loadOrCreateIdentity();
 const statusTextEl = document.getElementById("status-text");
@@ -633,12 +896,12 @@ const modeHint = document.getElementById("mode-hint");
 
 let currentChannel = "default";
 
-// ── Virtual scroll state ────────────────────────────────────────────────
+// ── Virtual scroll state ─────────────────────────────────────────────────
 
 let allMessages = [];
 let messageMap = new Map();
 
-const ESTIMATED_ROW_HEIGHT = 80;
+const ESTIMATED_ROW_HEIGHT = 72;
 const BUFFER_COUNT = 10;
 const PAGE_SIZE = 50;
 
@@ -652,17 +915,13 @@ let oldestLoadedId = null;
 
 function getTotalHeight() {
   let total = 0;
-  for (let i = 0; i < allMessages.length; i++) {
-    total += heightCache.get(i) || ESTIMATED_ROW_HEIGHT;
-  }
+  for (let i = 0; i < allMessages.length; i++) total += heightCache.get(i) || ESTIMATED_ROW_HEIGHT;
   return total;
 }
 
 function getOffsetForIndex(index) {
   let offset = 0;
-  for (let i = 0; i < index; i++) {
-    offset += heightCache.get(i) || ESTIMATED_ROW_HEIGHT;
-  }
+  for (let i = 0; i < index; i++) offset += heightCache.get(i) || ESTIMATED_ROW_HEIGHT;
   return offset;
 }
 
@@ -679,46 +938,36 @@ function getIndexForOffset(offset) {
 function renderVirtualMessages() {
   const scrollTop = scrollContainer.scrollTop;
   const viewportHeight = scrollContainer.clientHeight;
-
   const totalHeight = getTotalHeight();
   scrollSpacer.style.height = totalHeight + "px";
 
   const startIdx = Math.max(0, getIndexForOffset(scrollTop) - BUFFER_COUNT);
   const endOffset = scrollTop + viewportHeight;
-  let endIdx = Math.min(allMessages.length, getIndexForOffset(endOffset) + BUFFER_COUNT + 1);
+  const endIdx = Math.min(allMessages.length, getIndexForOffset(endOffset) + BUFFER_COUNT + 1);
 
   if (startIdx === renderedRange.start && endIdx === renderedRange.end) return;
   renderedRange = { start: startIdx, end: endIdx };
 
   const fragment = document.createDocumentFragment();
   for (let i = startIdx; i < endIdx; i++) {
-    const msg = allMessages[i];
-    const el = createMessageElement(msg, i);
-    fragment.appendChild(el);
+    fragment.appendChild(createMessageElement(allMessages[i], i));
   }
 
   messagesEl.innerHTML = "";
   messagesEl.appendChild(fragment);
-
-  const topOffset = getOffsetForIndex(startIdx);
-  messagesEl.style.transform = `translateY(${topOffset}px)`;
+  messagesEl.style.transform = `translateY(${getOffsetForIndex(startIdx)}px)`;
 
   requestAnimationFrame(() => {
     let changed = false;
     const children = messagesEl.children;
     for (let i = 0; i < children.length; i++) {
       const idx = startIdx + i;
-      const measuredHeight = children[i].getBoundingClientRect().height;
-      if (measuredHeight > 0 && heightCache.get(idx) !== measuredHeight) {
-        heightCache.set(idx, measuredHeight);
-        changed = true;
-      }
+      const h = children[i].getBoundingClientRect().height;
+      if (h > 0 && heightCache.get(idx) !== h) { heightCache.set(idx, h); changed = true; }
     }
     if (changed) {
-      const newTotal = getTotalHeight();
-      scrollSpacer.style.height = newTotal + "px";
-      const newTopOffset = getOffsetForIndex(startIdx);
-      messagesEl.style.transform = `translateY(${newTopOffset}px)`;
+      scrollSpacer.style.height = getTotalHeight() + "px";
+      messagesEl.style.transform = `translateY(${getOffsetForIndex(startIdx)}px)`;
     }
   });
 }
@@ -726,11 +975,16 @@ function renderVirtualMessages() {
 function createMessageElement(msg, index) {
   const div = document.createElement("div");
   const isSelf = msg.ed25519 === identity.publicKey;
-  div.className = `msg${isSelf ? " self" : ""}`;
+
+  // Group with previous message if same author within 5 min
+  const prev = allMessages[index - 1];
+  const gap = prev ? (new Date(msg.created_at + "Z") - new Date(prev.created_at + "Z")) : Infinity;
+  const isGrouped = prev && prev.ed25519 === msg.ed25519 && gap < 5 * 60 * 1000;
+
+  div.className = `msg${isSelf ? " self" : ""}${isGrouped ? " grouped" : ""}`;
   div.dataset.index = index;
 
   const time = new Date(msg.created_at + "Z").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const pk = msg.ed25519.slice(0, 12);
   const tags = msg.tags.join(", ");
 
   let bodyHtml;
@@ -743,77 +997,74 @@ function createMessageElement(msg, index) {
   }
 
   const rawJson = escapeHtml(JSON.stringify(msg, null, 2));
+  const username = getUsername(msg.ed25519);
+  const youLabel = isSelf ? `<span class="name-you">(you)</span>` : "";
+
+  let avatarHtml = "";
+  const avatarUrl = getAvatarDataUrl(msg.ed25519);
+  if (!isGrouped) {
+    if (avatarUrl) {
+      avatarHtml = `<img src="${avatarUrl}" width="34" height="34" style="border-radius:50%;display:block;" alt="">`;
+    } else {
+      const hex = msg.ed25519.slice(0, 6);
+      avatarHtml = `<div style="width:34px;height:34px;border-radius:50%;background:#${hex};opacity:0.7;"></div>`;
+    }
+  }
+
+  const metaHtml = !isGrouped
+    ? `<div class="meta"><span class="name">${escapeHtml(username)}</span>${youLabel}<span class="tags">[${escapeHtml(tags)}]</span><span class="toggle">raw</span><span class="time">${time}</span></div>`
+    : `<div class="meta" style="display:none"></div>`;
 
   div.innerHTML =
-    `<div class="meta">` +
-      `<span class="pk">${pk}</span>` +
-      `<span class="tags">[${escapeHtml(tags)}]</span>` +
-      `<span class="toggle">raw</span>` +
-      `<span class="time">${time}</span>` +
-    `</div>` +
-    `<div class="body">${bodyHtml}</div>` +
-    `<div class="detail${expandedIds.has(msg.id) ? " open" : ""}">${rawJson}</div>`;
+    `<div class="avatar-col">${avatarHtml}</div>` +
+    `<div class="msg-content">` +
+      metaHtml +
+      `<div class="body">${bodyHtml}</div>` +
+      `<div class="detail${expandedIds.has(msg.id) ? " open" : ""}">${rawJson}</div>` +
+    `</div>`;
 
-  div.querySelector(".toggle").onclick = (e) => {
-    e.stopPropagation();
-    const detail = div.querySelector(".detail");
-    detail.classList.toggle("open");
-    if (detail.classList.contains("open")) {
-      expandedIds.add(msg.id);
-    } else {
-      expandedIds.delete(msg.id);
-    }
-    requestAnimationFrame(() => {
-      const measuredHeight = div.getBoundingClientRect().height;
-      if (measuredHeight > 0) {
-        heightCache.set(index, measuredHeight);
-        renderVirtualMessages();
-      }
-    });
-  };
+  const toggle = div.querySelector(".toggle");
+  if (toggle) {
+    toggle.onclick = (e) => {
+      e.stopPropagation();
+      const detail = div.querySelector(".detail");
+      detail.classList.toggle("open");
+      if (detail.classList.contains("open")) expandedIds.add(msg.id);
+      else expandedIds.delete(msg.id);
+      requestAnimationFrame(() => {
+        const h = div.getBoundingClientRect().height;
+        if (h > 0) { heightCache.set(index, h); renderVirtualMessages(); }
+      });
+    };
+  }
 
   return div;
 }
 
 function escapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 
 function addMessage(msg) {
   if (messageMap.has(msg.id)) return;
   messageMap.set(msg.id, msg);
-
   if (allMessages.length === 0 || msg.id > allMessages[allMessages.length - 1].id) {
     allMessages.push(msg);
   } else if (msg.id < allMessages[0].id) {
     allMessages.unshift(msg);
-    const newCache = new Map();
-    for (const [k, v] of heightCache) {
-      newCache.set(k + 1, v);
-    }
-    heightCache = newCache;
+    const nc = new Map(); for (const [k,v] of heightCache) nc.set(k+1,v);
+    heightCache = nc;
   } else {
-    let lo = 0, hi = allMessages.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (allMessages[mid].id < msg.id) lo = mid + 1;
-      else hi = mid;
-    }
+    let lo=0, hi=allMessages.length;
+    while (lo<hi) { const mid=(lo+hi)>>1; if (allMessages[mid].id < msg.id) lo=mid+1; else hi=mid; }
     allMessages.splice(lo, 0, msg);
-    const newCache = new Map();
-    for (const [k, v] of heightCache) {
-      newCache.set(k >= lo ? k + 1 : k, v);
-    }
-    heightCache = newCache;
+    const nc = new Map(); for (const [k,v] of heightCache) nc.set(k>=lo?k+1:k,v);
+    heightCache = nc;
   }
 }
 
 function scrollToBottom(smooth) {
-  const totalHeight = getTotalHeight();
-  scrollContainer.scrollTo({
-    top: totalHeight,
-    behavior: smooth ? "smooth" : "instant"
-  });
+  scrollContainer.scrollTo({ top: getTotalHeight(), behavior: smooth ? "smooth" : "instant" });
 }
 
 function checkNearBottom() {
@@ -822,27 +1073,23 @@ function checkNearBottom() {
   scrollBottomBtn.classList.toggle("visible", !isUserNearBottom && allMessages.length > 0);
 }
 
-// ── Status ──────────────────────────────────────────────────────────────
+// ── Status ────────────────────────────────────────────────────────────────
 
 function updateStatus(connState) {
-  const pkShort = identity.publicKey.slice(0, 12);
+  const name = getUsername(identity.publicKey);
   const connHtml = connState === "connected"
     ? `<span class="ok">&#x2022; connected</span>`
     : `<span class="err">&#x2022; ${escapeHtml(connState)}</span>`;
-  statusTextEl.innerHTML = `<span class="id">${pkShort}</span> <span class="ch">#${escapeHtml(currentChannel)}</span> ${connHtml}`;
+  statusTextEl.innerHTML = `<span class="id">${escapeHtml(name)}</span> <span class="ch">#${escapeHtml(currentChannel)}</span> ${connHtml}`;
 }
 
-// ── History loading ─────────────────────────────────────────────────────
+// ── History loading ───────────────────────────────────────────────────────
 
 async function loadHistoryPage(before) {
   const p = new URLSearchParams({ limit: String(PAGE_SIZE), channel: currentChannel });
   if (before != null) p.set("before", String(before));
-
   const resp = await fetch(`${SERVER}/history?${p}`, {
-    headers: {
-      Authorization: `Bearer ${TOKEN}`,
-      "X-Ed25519-Pubkey": identity.publicKey,
-    },
+    headers: { Authorization: `Bearer ${TOKEN}`, "X-Ed25519-Pubkey": identity.publicKey },
   });
   if (!resp.ok) return { messages: [], has_more: false };
   return await resp.json();
@@ -852,37 +1099,21 @@ async function loadInitialHistory() {
   isLoadingHistory = true;
   loadIndicator.classList.add("visible");
 
-  // Load the most recent page using a large `before` sentinel (returns DESC order)
   const p = new URLSearchParams({ limit: String(PAGE_SIZE), channel: currentChannel, before: "9999999999" });
   const resp = await fetch(`${SERVER}/history?${p}`, {
-    headers: {
-      Authorization: `Bearer ${TOKEN}`,
-      "X-Ed25519-Pubkey": identity.publicKey,
-    },
+    headers: { Authorization: `Bearer ${TOKEN}`, "X-Ed25519-Pubkey": identity.publicKey },
   });
 
   if (resp.ok) {
     const data = await resp.json();
-    // Reverse DESC results back to ASC for display
-    for (const msg of data.messages.slice().reverse()) {
-      addMessage(msg);
-    }
+    for (const msg of data.messages.slice().reverse()) addMessage(msg);
     hasMoreHistory = data.has_more;
   }
 
-  if (allMessages.length > 0) {
-    oldestLoadedId = allMessages[0].id;
-  }
-
+  if (allMessages.length > 0) oldestLoadedId = allMessages[0].id;
   renderedRange = { start: -1, end: -1 };
   renderVirtualMessages();
-
-  requestAnimationFrame(() => {
-    scrollToBottom(false);
-    requestAnimationFrame(() => {
-      renderVirtualMessages();
-    });
-  });
+  requestAnimationFrame(() => { scrollToBottom(false); requestAnimationFrame(() => renderVirtualMessages()); });
 
   isLoadingHistory = false;
   loadIndicator.classList.remove("visible");
@@ -895,25 +1126,18 @@ async function loadOlderMessages() {
 
   const prevHeight = getTotalHeight();
   const prevScrollTop = scrollContainer.scrollTop;
-
   const data = await loadHistoryPage(oldestLoadedId);
 
   if (data.messages.length === 0) {
     hasMoreHistory = false;
   } else {
-    for (const msg of data.messages) {
-      addMessage(msg);
-    }
+    for (const msg of data.messages) addMessage(msg);
     oldestLoadedId = allMessages[0].id;
     hasMoreHistory = data.has_more !== false;
-
     renderedRange = { start: -1, end: -1 };
     renderVirtualMessages();
-
     requestAnimationFrame(() => {
-      const newHeight = getTotalHeight();
-      const diff = newHeight - prevHeight;
-      scrollContainer.scrollTop = prevScrollTop + diff;
+      scrollContainer.scrollTop = prevScrollTop + getTotalHeight() - prevHeight;
       renderVirtualMessages();
     });
   }
@@ -922,56 +1146,39 @@ async function loadOlderMessages() {
   loadIndicator.classList.remove("visible");
 }
 
-// ── Scroll handler ──────────────────────────────────────────────────────
+// ── Scroll handler ────────────────────────────────────────────────────────
 
 let scrollRafPending = false;
 
 scrollContainer.addEventListener("scroll", () => {
   checkNearBottom();
-
-  if (scrollContainer.scrollTop < 200 && hasMoreHistory && !isLoadingHistory) {
-    loadOlderMessages();
-  }
-
+  if (scrollContainer.scrollTop < 200 && hasMoreHistory && !isLoadingHistory) loadOlderMessages();
   if (!scrollRafPending) {
     scrollRafPending = true;
-    requestAnimationFrame(() => {
-      scrollRafPending = false;
-      renderVirtualMessages();
-    });
+    requestAnimationFrame(() => { scrollRafPending = false; renderVirtualMessages(); });
   }
 }, { passive: true });
 
 scrollBottomBtn.onclick = () => scrollToBottom(true);
 
-// ── WebSocket ───────────────────────────────────────────────────────────
+// ── WebSocket ─────────────────────────────────────────────────────────────
 
 const wsProto = SERVER.startsWith("https") ? "wss" : "ws";
 const wsBase = SERVER.replace(/^https?/, wsProto);
 const wsUrl = `${wsBase}/ws?token=${encodeURIComponent(TOKEN)}&pubkey=${encodeURIComponent(identity.publicKey)}`;
-
 let ws;
 
 function subscribeToChannel() {
-  if (ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({ type: "subscribe", sub_id: "current", channel: currentChannel }));
-  }
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "subscribe", sub_id: "current", channel: currentChannel }));
 }
 
 function unsubscribeFromChannel() {
-  if (ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({ type: "unsubscribe", sub_id: "current" }));
-  }
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "unsubscribe", sub_id: "current" }));
 }
 
 function connectWs() {
   ws = new WebSocket(wsUrl);
-
-  ws.onopen = () => {
-    updateStatus("connected");
-    subscribeToChannel();
-  };
-
+  ws.onopen = () => { updateStatus("connected"); subscribeToChannel(); };
   ws.onmessage = (ev) => {
     const data = JSON.parse(ev.data);
     if (data.type === "message") {
@@ -979,53 +1186,32 @@ function connectWs() {
       addMessage(data.message);
       renderedRange = { start: -1, end: -1 };
       renderVirtualMessages();
-      if (wasNearBottom) {
-        requestAnimationFrame(() => scrollToBottom(true));
-      }
+      if (wasNearBottom) requestAnimationFrame(() => scrollToBottom(true));
     } else if (data.type === "error") {
       console.error("server error:", data.detail);
     }
   };
-
-  ws.onclose = () => {
-    updateStatus("reconnecting...");
-    setTimeout(connectWs, 2000);
-  };
+  ws.onclose = () => { updateStatus("reconnecting..."); setTimeout(connectWs, 2000); };
 }
 
-// ── Channel switching ───────────────────────────────────────────────────
+// ── Channel switching ─────────────────────────────────────────────────────
 
 function switchChannel(newChannel) {
   newChannel = newChannel.trim() || "default";
   if (newChannel === currentChannel) return;
-
   unsubscribeFromChannel();
-
   currentChannel = newChannel;
   channelInput.value = currentChannel;
-
-  allMessages = [];
-  messageMap.clear();
-  heightCache.clear();
-  expandedIds.clear();
-  renderedRange = { start: 0, end: 0 };
-  messagesEl.innerHTML = "";
-  hasMoreHistory = true;
-  oldestLoadedId = null;
-  isUserNearBottom = true;
-
+  allMessages = []; messageMap.clear(); heightCache.clear(); expandedIds.clear();
+  renderedRange = { start: 0, end: 0 }; messagesEl.innerHTML = "";
+  hasMoreHistory = true; oldestLoadedId = null; isUserNearBottom = true;
   updateStatus(ws && ws.readyState === 1 ? "connected" : "connecting...");
-
-  loadInitialHistory().then(() => {
-    subscribeToChannel();
-  });
+  loadInitialHistory().then(() => subscribeToChannel());
 }
 
-// ── Input handling ──────────────────────────────────────────────────────
+// ── Input handling ────────────────────────────────────────────────────────
 
-function isJsonMode() {
-  return textInput.value.trimStart().startsWith("{");
-}
+function isJsonMode() { return textInput.value.trimStart().startsWith("{"); }
 
 textInput.addEventListener("input", () => {
   modeHint.textContent = isJsonMode() ? "json" : "text";
@@ -1036,42 +1222,19 @@ textInput.addEventListener("input", () => {
 async function sendMessage() {
   const raw = textInput.value.trim();
   if (!raw || !ws || ws.readyState !== 1) return;
-
   let msg;
   if (isJsonMode()) {
     let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (e) {
-      console.error("invalid JSON:", e.message);
-      return;
-    }
-    if (!parsed.tags || !parsed.body) {
-      console.error("JSON message must have 'tags' and 'body' fields");
-      return;
-    }
-    msg = {};
-    msg.channel = parsed.channel || currentChannel;
-    msg.tags = parsed.tags;
-    msg.body = parsed.body;
+    try { parsed = JSON.parse(raw); } catch (e) { console.error("invalid JSON:", e.message); return; }
+    if (!parsed.tags || !parsed.body) { console.error("JSON message must have 'tags' and 'body'"); return; }
+    msg = { channel: parsed.channel || currentChannel, tags: parsed.tags, body: parsed.body };
     if (parsed.allow) msg.allow = parsed.allow;
     if (parsed.disallow) msg.disallow = parsed.disallow;
   } else {
-    msg = {
-      channel: currentChannel,
-      tags: ["chat"],
-      body: { text: raw },
-    };
+    msg = { channel: currentChannel, tags: ["chat"], body: raw };
   }
-
   const sig = signMessage(identity.secretKey, msg);
-
-  ws.send(JSON.stringify({
-    type: "publish",
-    ...msg,
-    signature: sig,
-  }));
-
+  ws.send(JSON.stringify({ type: "publish", ...msg, signature: sig }));
   textInput.value = "";
   textInput.style.height = "auto";
   modeHint.textContent = "text";
@@ -1080,21 +1243,13 @@ async function sendMessage() {
 sendBtn.onclick = sendMessage;
 
 textInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey && !isJsonMode()) {
-    e.preventDefault();
-    sendMessage();
-  } else if (e.key === "Enter" && e.ctrlKey) {
-    e.preventDefault();
-    sendMessage();
-  }
+  if (e.key === "Enter" && !e.shiftKey && !isJsonMode()) { e.preventDefault(); sendMessage(); }
+  else if (e.key === "Enter" && e.ctrlKey) { e.preventDefault(); sendMessage(); }
 });
 
 channelSwitchBtn.onclick = () => switchChannel(channelInput.value);
-channelInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") switchChannel(channelInput.value);
-});
+channelInput.addEventListener("keydown", (e) => { if (e.key === "Enter") switchChannel(channelInput.value); });
 
-// Handle resize (e.g. keyboard open/close on mobile)
 let resizeRaf;
 window.addEventListener("resize", () => {
   if (resizeRaf) cancelAnimationFrame(resizeRaf);
@@ -1105,17 +1260,14 @@ window.addEventListener("resize", () => {
   });
 });
 
-// Handle visual viewport changes (iOS keyboard)
 if (window.visualViewport) {
   window.visualViewport.addEventListener("resize", () => {
     document.body.style.height = window.visualViewport.height + "px";
-    if (isUserNearBottom) {
-      requestAnimationFrame(() => scrollToBottom(false));
-    }
+    if (isUserNearBottom) requestAnimationFrame(() => scrollToBottom(false));
   });
 }
 
-// ── Boot ────────────────────────────────────────────────────────────────
+// ── Boot ──────────────────────────────────────────────────────────────────
 
 updateStatus("connecting...");
 await loadInitialHistory();
