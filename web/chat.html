@@ -4,8 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="mobile-web-app-capable" content="yes">
-<title>gizmo debug</title>
+<meta name="theme-color" content="#161b22">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<title>gizmo</title>
 <style>
   :root {
     --bg-primary: #0d1117;
@@ -725,7 +729,7 @@ function createMessageElement(msg, index) {
   div.className = `msg${isSelf ? " self" : ""}`;
   div.dataset.index = index;
 
-  const time = new Date(msg.created_at + "Z").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const time = new Date(msg.created_at + "Z").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const pk = msg.ed25519.slice(0, 12);
   const tags = msg.tags.join(", ");
 
