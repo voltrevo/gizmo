@@ -7,10 +7,16 @@
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: monospace; background: #111; color: #ddd; display: flex; flex-direction: column; height: 100vh; }
-  #status { padding: 8px 12px; background: #222; font-size: 12px; border-bottom: 1px solid #333; }
+  #status { padding: 8px 12px; background: #222; font-size: 12px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+  #status .left { display: flex; gap: 8px; align-items: center; }
   #status .id { color: #6cf; }
   #status .ok { color: #6f6; }
   #status .err { color: #f66; }
+  #status .ch { color: #f90; }
+  #channel-controls { display: flex; gap: 4px; align-items: center; }
+  #channel-controls input { background: #1a1a1a; border: 1px solid #444; color: #ddd; padding: 2px 6px; font-family: monospace; font-size: 12px; border-radius: 3px; width: 100px; }
+  #channel-controls button { background: #335; border: 1px solid #558; color: #ddd; padding: 2px 8px; font-family: monospace; font-size: 12px; cursor: pointer; border-radius: 3px; }
+  #channel-controls button:hover { background: #447; }
   #messages { flex: 1; overflow-y: auto; padding: 12px; font-size: 13px; }
   .msg { margin-bottom: 8px; padding: 6px 8px; background: #1a1a1a; border-left: 3px solid #444; border-radius: 2px; }
   .msg .meta { color: #888; font-size: 11px; margin-bottom: 2px; }
@@ -29,10 +35,17 @@
 </head>
 <body>
 
-<div id="status">connecting...</div>
+<div id="status">
+  <span class="left">
+    <span id="status-text">connecting...</span>
+  </span>
+  <div id="channel-controls">
+    <input id="channel-input" type="text" placeholder="channel" value="default">
+    <button id="channel-switch">switch</button>
+  </div>
+</div>
 <div id="messages"></div>
 <div id="input-bar">
-  <input id="channel-input" type="text" placeholder="channel" value="default" style="max-width: 120px;">
   <input id="text-input" type="text" placeholder="type a message..." autofocus>
   <button id="send-btn">send</button>
 </div>
@@ -103,12 +116,23 @@ if (!TOKEN) {
 // ── App ───────────────────────────────────────────────────────────────
 
 const identity = loadOrCreateIdentity();
-const statusEl = document.getElementById("status");
+const statusTextEl = document.getElementById("status-text");
 const messagesEl = document.getElementById("messages");
 const textInput = document.getElementById("text-input");
 const sendBtn = document.getElementById("send-btn");
+const channelInput = document.getElementById("channel-input");
+const channelSwitchBtn = document.getElementById("channel-switch");
 
-statusEl.innerHTML = `identity: <span class="id">${identity.publicKey.slice(0, 16)}...</span> | <span class="err">connecting...</span>`;
+let currentChannel = "default";
+let seenIds = new Set();
+
+function updateStatus(connState) {
+  const pkShort = identity.publicKey.slice(0, 16);
+  const connHtml = connState === "connected"
+    ? `<span class="ok">connected</span>`
+    : `<span class="err">${escapeHtml(connState)}</span>`;
+  statusTextEl.innerHTML = `<span class="id">${pkShort}...</span> | <span class="ch">#${escapeHtml(currentChannel)}</span> | ${connHtml}`;
+}
 
 function renderMessage(msg) {
   const div = document.createElement("div");
@@ -135,12 +159,11 @@ function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// Load history
+// Load history for current channel
 async function loadHistory() {
-  const channel = document.getElementById("channel-input").value.trim() || "default";
   let after;
   while (true) {
-    const params = new URLSearchParams({ limit: "200", channel });
+    const params = new URLSearchParams({ limit: "200", channel: currentChannel });
     if (after != null) params.set("after", String(after));
 
     const resp = await fetch(`${SERVER}/history?${params}`, {
@@ -151,7 +174,10 @@ async function loadHistory() {
     });
     if (!resp.ok) break;
     const data = await resp.json();
-    for (const msg of data.messages) renderMessage(msg);
+    for (const msg of data.messages) {
+      seenIds.add(msg.id);
+      renderMessage(msg);
+    }
     if (!data.has_more || data.messages.length === 0) break;
     after = data.messages[data.messages.length - 1].id;
   }
@@ -163,16 +189,25 @@ const wsBase = SERVER.replace(/^https?/, wsProto);
 const wsUrl = `${wsBase}/ws?token=${encodeURIComponent(TOKEN)}&pubkey=${encodeURIComponent(identity.publicKey)}`;
 
 let ws;
-let seenIds = new Set();
+
+function subscribeToChannel() {
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: "subscribe", sub_id: "current", channel: currentChannel }));
+  }
+}
+
+function unsubscribeFromChannel() {
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: "unsubscribe", sub_id: "current" }));
+  }
+}
 
 function connectWs() {
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
-    statusEl.innerHTML = `identity: <span class="id">${identity.publicKey.slice(0, 16)}...</span> | <span class="ok">connected</span>`;
-    // Subscribe to current channel
-    const channel = document.getElementById("channel-input").value.trim() || "default";
-    ws.send(JSON.stringify({ type: "subscribe", sub_id: "all", channel }));
+    updateStatus("connected");
+    subscribeToChannel();
   };
 
   ws.onmessage = (ev) => {
@@ -188,18 +223,38 @@ function connectWs() {
   };
 
   ws.onclose = () => {
-    statusEl.innerHTML = `identity: <span class="id">${identity.publicKey.slice(0, 16)}...</span> | <span class="err">disconnected, reconnecting...</span>`;
+    updateStatus("disconnected, reconnecting...");
     setTimeout(connectWs, 2000);
   };
+}
+
+function switchChannel(newChannel) {
+  newChannel = newChannel.trim() || "default";
+  if (newChannel === currentChannel) return;
+
+  // Unsubscribe from old channel
+  unsubscribeFromChannel();
+
+  // Switch
+  currentChannel = newChannel;
+  channelInput.value = currentChannel;
+
+  // Clear messages and reload
+  messagesEl.innerHTML = "";
+  seenIds.clear();
+  updateStatus(ws && ws.readyState === 1 ? "connected" : "connecting...");
+
+  loadHistory().then(() => {
+    subscribeToChannel();
+  });
 }
 
 async function sendMessage() {
   const text = textInput.value.trim();
   if (!text || !ws || ws.readyState !== 1) return;
 
-  const channel = document.getElementById("channel-input").value.trim() || "default";
   const msg = {
-    channel,
+    channel: currentChannel,
     tags: ["debug"],
     body: { text },
   };
@@ -219,13 +274,14 @@ textInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") sendMessage();
 });
 
-// Boot
-await loadHistory();
-// Mark all history ids as seen so we don't duplicate
-document.querySelectorAll(".msg").forEach((el) => {
-  const m = el.querySelector(".meta")?.textContent.match(/#(\d+)/);
-  if (m) seenIds.add(parseInt(m[1]));
+channelSwitchBtn.onclick = () => switchChannel(channelInput.value);
+channelInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") switchChannel(channelInput.value);
 });
+
+// Boot
+updateStatus("connecting...");
+await loadHistory();
 connectWs();
 </script>
 </body>
