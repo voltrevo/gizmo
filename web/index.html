@@ -23,11 +23,18 @@
   .msg .meta .pk { color: #6cf; }
   .msg .meta .tags { color: #f90; }
   .msg .body { white-space: pre-wrap; word-break: break-word; }
+  .msg .detail { display: none; margin-top: 6px; padding: 6px 8px; background: #111; border: 1px solid #333; border-radius: 3px; font-size: 11px; color: #999; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto; }
+  .msg .detail.open { display: block; }
+  .msg .toggle { cursor: pointer; user-select: none; }
+  .msg .toggle:hover { color: #bbb; }
   .msg.self { border-left-color: #6cf; }
   #input-bar { display: flex; padding: 8px; background: #222; border-top: 1px solid #333; gap: 8px; }
-  #input-bar input { flex: 1; background: #1a1a1a; border: 1px solid #444; color: #ddd; padding: 8px; font-family: monospace; font-size: 14px; border-radius: 4px; }
+  #input-bar input, #input-bar textarea { flex: 1; background: #1a1a1a; border: 1px solid #444; color: #ddd; padding: 8px; font-family: monospace; font-size: 14px; border-radius: 4px; resize: none; }
+  #input-bar textarea { min-height: 36px; max-height: 200px; line-height: 1.4; }
+  #input-bar .btns { display: flex; flex-direction: column; gap: 4px; }
   #input-bar button { background: #335; border: 1px solid #558; color: #ddd; padding: 8px 16px; font-family: monospace; cursor: pointer; border-radius: 4px; }
   #input-bar button:hover { background: #447; }
+  #input-bar .mode { font-size: 10px; color: #666; padding: 2px 4px; text-align: center; }
   #config { padding: 12px; background: #1a1a1a; }
   #config input { background: #222; border: 1px solid #444; color: #ddd; padding: 6px; font-family: monospace; width: 100%; margin: 4px 0; }
   #config button { background: #335; border: 1px solid #558; color: #ddd; padding: 6px 12px; font-family: monospace; cursor: pointer; margin-top: 4px; }
@@ -46,8 +53,11 @@
 </div>
 <div id="messages"></div>
 <div id="input-bar">
-  <input id="text-input" type="text" placeholder="type a message..." autofocus>
-  <button id="send-btn">send</button>
+  <textarea id="text-input" rows="1" placeholder='text or JSON: {"tags":["x"],"body":{...}}' autofocus></textarea>
+  <div class="btns">
+    <button id="send-btn">send</button>
+    <div id="mode-hint" class="mode">text</div>
+  </div>
 </div>
 
 <script type="module">
@@ -150,7 +160,14 @@ function renderMessage(msg) {
     bodyText = JSON.stringify(msg.body, null, 2);
   }
 
-  div.innerHTML = `<div class="meta"><span class="pk">${pk}</span> <span class="tags">[${tags}]</span> ${time} #${msg.id}</div><div class="body">${escapeHtml(bodyText)}</div>`;
+  const rawJson = escapeHtml(JSON.stringify(msg, null, 2));
+
+  div.innerHTML = `<div class="meta"><span class="pk">${pk}</span> <span class="tags">[${tags}]</span> ${time} #${msg.id} <span class="toggle">[raw]</span></div><div class="body">${escapeHtml(bodyText)}</div><div class="detail">${rawJson}</div>`;
+
+  div.querySelector(".toggle").onclick = () => {
+    div.querySelector(".detail").classList.toggle("open");
+  };
+
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
@@ -249,15 +266,52 @@ function switchChannel(newChannel) {
   });
 }
 
-async function sendMessage() {
-  const text = textInput.value.trim();
-  if (!text || !ws || ws.readyState !== 1) return;
+function isJsonMode() {
+  return textInput.value.trimStart().startsWith("{");
+}
 
-  const msg = {
-    channel: currentChannel,
-    tags: ["debug"],
-    body: { text },
-  };
+// Update mode hint as user types
+textInput.addEventListener("input", () => {
+  modeHint.textContent = isJsonMode() ? "json" : "text";
+  // Auto-resize
+  textInput.style.height = "auto";
+  textInput.style.height = Math.min(textInput.scrollHeight, 200) + "px";
+});
+
+async function sendMessage() {
+  const raw = textInput.value.trim();
+  if (!raw || !ws || ws.readyState !== 1) return;
+
+  let msg;
+  if (isJsonMode()) {
+    // JSON mode: parse as full message (must have tags + body at minimum)
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      console.error("invalid JSON:", e.message);
+      return;
+    }
+    if (!parsed.tags || !parsed.body) {
+      console.error("JSON message must have 'tags' and 'body' fields");
+      return;
+    }
+    msg = {};
+    // Channel from parsed message, or fall back to current channel
+    msg.channel = parsed.channel || currentChannel;
+    msg.tags = parsed.tags;
+    msg.body = parsed.body;
+    if (parsed.allow) msg.allow = parsed.allow;
+    if (parsed.disallow) msg.disallow = parsed.disallow;
+  } else {
+    // Text mode: wrap as simple debug message
+    msg = {
+      channel: currentChannel,
+      tags: ["debug"],
+      body: { text: raw },
+    };
+  }
+
   const sig = signMessage(identity.secretKey, msg);
 
   ws.send(JSON.stringify({
@@ -267,11 +321,22 @@ async function sendMessage() {
   }));
 
   textInput.value = "";
+  textInput.style.height = "auto";
+  modeHint.textContent = "text";
 }
+
+const modeHint = document.getElementById("mode-hint");
 
 sendBtn.onclick = sendMessage;
 textInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") sendMessage();
+  // Enter sends in text mode, Ctrl+Enter sends in JSON mode (allows newlines)
+  if (e.key === "Enter" && !e.shiftKey && !isJsonMode()) {
+    e.preventDefault();
+    sendMessage();
+  } else if (e.key === "Enter" && e.ctrlKey) {
+    e.preventDefault();
+    sendMessage();
+  }
 });
 
 channelSwitchBtn.onclick = () => switchChannel(channelInput.value);
