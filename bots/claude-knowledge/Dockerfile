@@ -8,7 +8,7 @@ RUN bun link
 FROM node:22-slim
 
 # Install bun (copy binary to shared path so non-root users can use it)
-RUN apt-get update && apt-get install -y curl unzip git && \
+RUN apt-get update && apt-get install -y curl unzip git jq && \
     curl -fsSL https://bun.sh/install | bash && \
     cp /root/.bun/bin/bun /usr/local/bin/bun && \
     chmod 755 /usr/local/bin/bun
@@ -27,6 +27,9 @@ RUN useradd -m -s /bin/sh agent && \
 
 COPY bots/claude-knowledge/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+COPY bots/claude-knowledge/concurrent-wait.sh /usr/local/bin/concurrent-wait
+RUN chmod +x /usr/local/bin/concurrent-wait
 
 COPY bots/claude-knowledge/prompt.md /prompt.md
 

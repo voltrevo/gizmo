@@ -47,6 +47,9 @@ chown agent:agent /tmp/prompt.md
 # Capture non-secret env vars
 MAX_BUDGET="${MAX_BUDGET:-}"
 
+# Publish startup message before dropping privileges
+gizmo publish --user "${GIZMO_USER:-claude}" --tags "${GIZMO_TAGS:-chat}" --body "starting..." 2>/dev/null || true
+
 # --- Phase 2: Drop privileges, clear secrets, run claude ---
 
 # unset all secrets so they're not in the agent's environment
