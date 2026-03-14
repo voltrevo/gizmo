@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gizmo</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #0a0a0b;
+    --surface: #131316;
+    --surface2: #1a1a1f;
+    --border: #25252d;
+    --text: #e4e4e7;
+    --text2: #8b8b96;
+    --accent: #6366f1;
+    --accent2: #818cf8;
+    --green: #34d399;
+    --orange: #fb923c;
+    --pink: #f472b6;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Gradient orbs */
+  .orb {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: 0.15;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .orb-1 { width: 600px; height: 600px; background: var(--accent); top: -200px; right: -100px; }
+  .orb-2 { width: 500px; height: 500px; background: var(--pink); bottom: -150px; left: -100px; }
+  .orb-3 { width: 400px; height: 400px; background: var(--green); top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.07; }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  /* Nav */
+  nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px 0;
+  }
+  nav .logo {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: -0.5px;
+    color: var(--text);
+  }
+  nav .links { display: flex; gap: 24px; }
+  nav .links a {
+    color: var(--text2);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 400;
+    transition: color 0.2s;
+  }
+  nav .links a:hover { color: var(--text); }
+
+  /* Hero */
+  .hero {
+    padding: 100px 0 80px;
+    text-align: center;
+  }
+  .hero h1 {
+    font-size: clamp(40px, 7vw, 64px);
+    font-weight: 600;
+    letter-spacing: -2px;
+    line-height: 1.1;
+    margin-bottom: 20px;
+    background: linear-gradient(135deg, var(--text) 0%, var(--accent2) 50%, var(--pink) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .hero p {
+    font-size: 18px;
+    color: var(--text2);
+    line-height: 1.6;
+    max-width: 520px;
+    margin: 0 auto 40px;
+  }
+  .hero-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 24px;
+    border-radius: 10px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: all 0.2s;
+    border: none;
+    cursor: pointer;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+  .btn-primary:hover { background: var(--accent2); transform: translateY(-1px); }
+  .btn-secondary {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { background: var(--border); transform: translateY(-1px); }
+
+  /* Features */
+  .features {
+    padding: 40px 0 80px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+  }
+  .feature {
+    padding: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: border-color 0.2s;
+  }
+  .feature:hover { border-color: #35354d; }
+  .feature .icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    margin-bottom: 14px;
+  }
+  .feature h3 {
+    font-size: 15px;
+    font-weight: 500;
+    margin-bottom: 6px;
+    letter-spacing: -0.3px;
+  }
+  .feature p {
+    font-size: 13px;
+    color: var(--text2);
+    line-height: 1.5;
+  }
+  .icon-ws { background: rgba(99, 102, 241, 0.15); }
+  .icon-ed { background: rgba(52, 211, 153, 0.15); }
+  .icon-tag { background: rgba(251, 146, 60, 0.15); }
+  .icon-acl { background: rgba(244, 114, 182, 0.15); }
+  .icon-hist { background: rgba(99, 102, 241, 0.15); }
+  .icon-self { background: rgba(52, 211, 153, 0.15); }
+
+  /* Code block */
+  .code-section {
+    padding: 0 0 80px;
+  }
+  .code-section h2 {
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -1px;
+    margin-bottom: 8px;
+  }
+  .code-section .sub {
+    font-size: 14px;
+    color: var(--text2);
+    margin-bottom: 24px;
+  }
+  .code-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .code-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text2);
+  }
+  .code-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .code-dot-r { background: #f87171; }
+  .code-dot-y { background: #fbbf24; }
+  .code-dot-g { background: #34d399; }
+  pre {
+    padding: 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    overflow-x: auto;
+    color: var(--text2);
+  }
+  pre .kw { color: var(--pink); }
+  pre .fn { color: var(--accent2); }
+  pre .str { color: var(--green); }
+  pre .cmt { color: #4a4a5a; }
+
+  /* Footer */
+  footer {
+    padding: 40px 0;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    font-size: 13px;
+    color: var(--text2);
+  }
+  footer a { color: var(--accent2); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+<div class="orb orb-3"></div>
+
+<div class="container">
+  <nav>
+    <div class="logo">gizmo</div>
+    <div class="links">
+      <a href="/debug">debug ui</a>
+      <a href="https://github.com">docs</a>
+    </div>
+  </nav>
+
+  <div class="hero">
+    <h1>Real-time messages,<br>cryptographic identity</h1>
+    <p>A minimal self-hosted WebSocket server with ed25519 signatures, tag-based routing, access control, and paginated history.</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="/debug">Open Debug UI</a>
+      <a class="btn btn-secondary" href="https://github.com">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </div>
+
+  <div class="features">
+    <div class="feature">
+      <div class="icon icon-ws">&#9889;</div>
+      <h3>WebSocket</h3>
+      <p>Real-time pub/sub with multiple concurrent subscriptions per connection.</p>
+    </div>
+    <div class="feature">
+      <div class="icon icon-ed">&#128273;</div>
+      <h3>Ed25519 Identity</h3>
+      <p>Every message is signed. Clients prove identity cryptographically, not with passwords.</p>
+    </div>
+    <div class="feature">
+      <div class="icon icon-tag">&#9998;</div>
+      <h3>Tag Routing</h3>
+      <p>Messages carry tags. Subscribe to exactly what you need with flexible filters.</p>
+    </div>
+    <div class="feature">
+      <div class="icon icon-acl">&#128274;</div>
+      <h3>Access Control</h3>
+      <p>Per-message allow/disallow lists. Control exactly who sees what.</p>
+    </div>
+    <div class="feature">
+      <div class="icon icon-hist">&#128196;</div>
+      <h3>Paginated History</h3>
+      <p>Cursor-based pagination over HTTP. Never miss a message, even paginating slowly.</p>
+    </div>
+    <div class="feature">
+      <div class="icon icon-self">&#9881;</div>
+      <h3>Self-Hosted</h3>
+      <p>Single binary. SQLite storage. Run it anywhere with one command.</p>
+    </div>
+  </div>
+
+  <div class="code-section">
+    <h2>Quick start</h2>
+    <p class="sub">One command to run. Auto-generates a token on first start.</p>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-dot code-dot-r"></span>
+        <span class="code-dot code-dot-y"></span>
+        <span class="code-dot code-dot-g"></span>
+        terminal
+      </div>
+      <pre><span class="cmt"># run the server</span>
+$ gizmo run
+
+<span class="cmt"># generate a keypair</span>
+$ gizmo keygen
+<span class="str">secret_key: 4a2f...</span>
+<span class="str">public_key: e8c1...</span>
+
+<span class="cmt"># send a message</span>
+$ gizmo publish <span class="kw">--tags</span> chat <span class="kw">--body</span> <span class="str">'{"text":"hello world"}'</span></pre>
+    </div>
+  </div>
+
+  <div class="code-section">
+    <h2>Client library</h2>
+    <p class="sub">TypeScript client for Bun and the browser.</p>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-dot code-dot-r"></span>
+        <span class="code-dot code-dot-y"></span>
+        <span class="code-dot code-dot-g"></span>
+        app.ts
+      </div>
+      <pre><span class="kw">import</span> { GizmoClient, Signer } <span class="kw">from</span> <span class="str">"./bun"</span>;
+
+<span class="kw">const</span> signer = Signer.<span class="fn">generate</span>();
+<span class="kw">const</span> client = <span class="kw">new</span> <span class="fn">GizmoClient</span>({
+  url: <span class="str">"https://gizmo.voltrevo.com"</span>,
+  token: <span class="str">"your-token"</span>,
+  signer,
+});
+
+<span class="kw">await</span> client.<span class="fn">connect</span>();
+<span class="kw">await</span> client.<span class="fn">subscribe</span>(<span class="fn">(msg)</span> => console.<span class="fn">log</span>(msg));
+<span class="kw">await</span> client.<span class="fn">publish</span>({
+  tags: [<span class="str">"chat"</span>],
+  body: { text: <span class="str">"hello"</span> },
+});</pre>
+    </div>
+  </div>
+
+  <footer>
+    gizmo &mdash; <a href="https://github.com">source</a>
+  </footer>
+</div>
+
+</body>
+</html>
