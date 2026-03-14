@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env -S bun run
 
 import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
@@ -10,7 +10,17 @@ const BASE_DIR = join(homedir(), ".local", "share", "gizmo");
 const USERS_DIR = join(BASE_DIR, "users");
 
 const args = process.argv.slice(2);
-const command = args[0];
+
+// Find command: first arg that isn't a flag or a flag's value
+let command: string | undefined;
+for (let i = 0; i < args.length; i++) {
+  if (args[i]!.startsWith("--")) {
+    i++; // skip flag value
+    continue;
+  }
+  command = args[i];
+  break;
+}
 
 function flag(name: string): string | undefined {
   const i = args.indexOf(`--${name}`);
@@ -140,12 +150,21 @@ async function main() {
       ensureKeypair();
       const client = makeClient();
       const tags = flag("tags")?.split(",").map((s) => s.trim()) ?? [];
-      const bodyRaw = flag("body");
+      let bodyRaw = flag("body");
+      if (bodyRaw === "-") {
+        bodyRaw = (await Bun.stdin.text()).trimEnd();
+      }
       if (!bodyRaw) {
-        console.error("--body is required");
+        console.error("--body is required (use --body - to read from stdin)");
         process.exit(1);
       }
-      const body = JSON.parse(bodyRaw);
+      // Try parsing as JSON; if it fails, treat as plain string
+      let body: unknown;
+      try {
+        body = JSON.parse(bodyRaw);
+      } catch {
+        body = bodyRaw;
+      }
       const channel = flag("channel");
       const allow = flag("allow")
         ?.split(",")
@@ -156,11 +175,15 @@ async function main() {
         .map((s) => s.trim())
         .filter(Boolean);
 
+      client.onError((detail) => {
+        console.error(`error: ${detail}`);
+        process.exit(1);
+      });
       await client.connect();
       const id = await client.publish({ tags, body, channel, allow, disallow });
       console.log(`published: ${id}`);
       client.disconnect();
-      break;
+      process.exit(0);
     }
 
     case "subscribe": {
@@ -180,6 +203,77 @@ async function main() {
         { tags, channel },
       );
       console.error(`subscribed as "${resolveUser()}", listening...`);
+      break;
+    }
+
+    case "wait": {
+      ensureKeypair();
+      const client = makeClient();
+      const channel = flag("channel");
+      const tags = flag("tags")
+        ?.split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const after = flag("after") ? Number(flag("after")) : undefined;
+      const timeoutSec = flag("timeout") ? Number(flag("timeout")) : undefined;
+
+      // Check history first — if messages already exist after the given id, return them
+      if (after != null) {
+        const existing = await client.history({ channel, tags, after });
+        if (existing.messages.length > 0) {
+          for (const msg of existing.messages) {
+            console.log(JSON.stringify(msg));
+          }
+          break;
+        }
+      }
+
+      // Subscribe and wait for the next message
+      let exitCode = 0;
+      await client.connect();
+
+      const { promise, resolve } = Promise.withResolvers<void>();
+
+      await client.subscribe(
+        (msg) => {
+          console.log(JSON.stringify(msg));
+          resolve();
+        },
+        { tags, channel },
+      );
+
+      if (timeoutSec) {
+        setTimeout(() => {
+          console.error("timeout");
+          exitCode = 1;
+          resolve();
+        }, timeoutSec * 1000);
+      }
+
+      await promise;
+      client.disconnect();
+      process.exit(exitCode);
+    }
+
+    case "recent": {
+      const client = makeClient();
+      const channel = flag("channel");
+      const limit = flag("limit") ? Number(flag("limit")) : 10;
+      const tags = flag("tags")
+        ?.split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      // Use before=MAX_INT to get the most recent messages (descending query, reversed by server)
+      const result = await client.history({
+        channel,
+        before: Number.MAX_SAFE_INTEGER,
+        limit,
+        tags,
+      });
+      for (const msg of result.messages) {
+        console.log(JSON.stringify(msg));
+      }
       break;
     }
 
@@ -214,7 +308,9 @@ commands:
   config                Show or set stored config values
   publish               Publish a message
   subscribe             Subscribe to live messages
-  history               Fetch message history
+  wait                  Wait for next message then exit
+  recent                Show most recent messages (newest last)
+  history               Fetch message history (full pagination)
 
 identity:
   --user <name>         Use this identity (default: "default")
@@ -236,7 +332,7 @@ common options (or set env vars):
 
 publish options:
   --tags <a,b>          Comma-separated tags
-  --body <json>         Message body (JSON)
+  --body <json|->       Message body (JSON, or - for stdin, auto-piped)
   --channel <name>      Channel (default: "default")
   --allow <keys>        Comma-separated allowed public keys
   --disallow <keys>     Comma-separated disallowed public keys
@@ -244,6 +340,17 @@ publish options:
 subscribe options:
   --tags <a,b>          Filter by tags
   --channel <name>      Channel to subscribe to
+
+wait options:
+  --after <id>          Last known message ID (returns immediately if newer exist)
+  --tags <a,b>          Filter by tags
+  --channel <name>      Channel to watch
+  --timeout <seconds>   Exit with error after N seconds
+
+recent options:
+  --limit <n>           Number of messages (default: 10)
+  --tags <a,b>          Filter by tags
+  --channel <name>      Channel
 
 history options:
   --channel <name>      Channel

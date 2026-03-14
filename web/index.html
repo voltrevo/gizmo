@@ -154,7 +154,9 @@ function renderMessage(msg) {
   const tags = msg.tags.join(", ");
 
   let bodyText;
-  if (typeof msg.body === "object" && msg.body !== null && "text" in msg.body) {
+  if (typeof msg.body === "string") {
+    bodyText = msg.body;
+  } else if (typeof msg.body === "object" && msg.body !== null && "text" in msg.body) {
     bodyText = msg.body.text;
   } else {
     bodyText = JSON.stringify(msg.body, null, 2);

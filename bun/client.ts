@@ -182,12 +182,11 @@ export class GizmoClient {
           }
           case "error": {
             this.errorHandler?.(data.detail);
-            // Also reject any pending publish
+            // Reject any pending publish
             const r = this.pendingResolves.get("publish");
             if (r) {
               this.pendingResolves.delete("publish");
-              // Signal error via a rejected promise would be better,
-              // but for simplicity we resolve with null
+              r(-1);
             }
             break;
           }
