@@ -3,7 +3,16 @@ name = "gizmo"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "gizmo"
+path = "src/main.rs"
+
+[[bin]]
+name = "gizmo-deploy"
+path = "src/deploy.rs"
+
 [dependencies]
+async-stream = "0.3"
 axum = { version = "0.8.8", features = ["ws"] }
 axum-extra = { version = "0.12.5", features = ["typed-header"] }
 base64 = "0.22.1"
@@ -18,7 +27,7 @@ rusqlite = { version = "0.38.0", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.149", features = ["preserve_order"] }
 tokio = { version = "1.50.0", features = ["full"] }
-tokio-stream = "0.1.18"
+tokio-stream = { version = "0.1.18", features = ["io-util"] }
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-native-roots"] }
 tower-http = { version = "0.6.8", features = ["cors"] }
 tracing = "0.1.44"

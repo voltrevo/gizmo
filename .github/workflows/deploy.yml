@@ -1,0 +1,15 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger deploy
+        run: |
+          curl -sf --no-buffer -X POST \
+            -H "Authorization: Bearer ${{ secrets.GIZMO_DEPLOY_TOKEN }}" \
+            https://gizmo.voltrevo.com/deploy
