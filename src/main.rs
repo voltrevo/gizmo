@@ -172,11 +172,26 @@ fn resolve_token(token: Option<String>, db: &str) -> String {
     })
 }
 
+const GIT_VERSION: &str = env!("GIZMO_GIT_VERSION");
+
 async fn run_server(port: u16, token: Option<String>, db: String, max_history_bytes: u64) {
     tracing_subscriber::fmt::init();
     ensure_parent_dir(&db);
     let token = resolve_token(token, &db);
     let state = Arc::new(server::AppState::new(&db, token, max_history_bytes));
+
+    // Insert a startup message so clients can see when the server (re)started.
+    let msg = state.db.insert_message(
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "default",
+        &["system".to_string()],
+        &serde_json::json!({ "text": format!("server started ({})", GIT_VERSION) }),
+        &None,
+        &None,
+        "",
+    );
+    let _ = state.broadcast_tx.send(msg);
+
     let app = server::router(state.clone());
     let addr = format!("0.0.0.0:{port}");
     tracing::info!("listening on {addr}");
