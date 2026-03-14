@@ -33,6 +33,22 @@ impl Db {
         )
         .expect("failed to init schema");
 
+        // Migration: add channel column if it doesn't exist.
+        let has_channel: bool = conn
+            .prepare("PRAGMA table_info(messages)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .any(|r| r.as_deref() == Ok("channel"));
+
+        if !has_channel {
+            conn.execute_batch(
+                "ALTER TABLE messages ADD COLUMN channel TEXT NOT NULL DEFAULT 'default';
+                 CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel);",
+            )
+            .expect("failed to add channel column");
+        }
+
         Self {
             conn: Mutex::new(conn),
             max_bytes,
@@ -42,6 +58,7 @@ impl Db {
     pub fn insert_message(
         &self,
         ed25519: &str,
+        channel: &str,
         tags: &[String],
         body: &serde_json::Value,
         allow: &Option<Vec<String>>,
@@ -57,13 +74,15 @@ impl Db {
         let size = tags_json.len() + body_json.len() + allow_json.as_ref().map_or(0, |s| s.len())
             + disallow_json.as_ref().map_or(0, |s| s.len())
             + signature.len()
-            + ed25519.len();
+            + ed25519.len()
+            + channel.len();
 
         conn.execute(
-            "INSERT INTO messages (ed25519, tags, body, allow_list, disallow, signature, size_bytes)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO messages (ed25519, channel, tags, body, allow_list, disallow, signature, size_bytes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 ed25519,
+                channel,
                 tags_json,
                 body_json,
                 allow_json,
@@ -84,6 +103,7 @@ impl Db {
         StoredMessage {
             id,
             ed25519: ed25519.to_string(),
+            channel: channel.to_string(),
             tags: tags.to_vec(),
             body: body.clone(),
             allow: allow.clone(),
@@ -125,6 +145,7 @@ impl Db {
     /// Backward pagination: before=Some(id), after=None → id < before ORDER BY id DESC
     pub fn query_messages(
         &self,
+        channel: &str,
         after: Option<i64>,
         before: Option<i64>,
         limit: i64,
@@ -133,8 +154,8 @@ impl Db {
     ) -> (Vec<StoredMessage>, bool) {
         let conn = self.conn.lock().unwrap();
 
-        let mut conditions = Vec::new();
-        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut conditions = vec!["channel = ?".to_string()];
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(channel.to_string())];
 
         if let Some(a) = after {
             conditions.push("id > ?".to_string());
@@ -145,11 +166,7 @@ impl Db {
             param_values.push(Box::new(b));
         }
 
-        let where_clause = if conditions.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", conditions.join(" AND "))
-        };
+        let where_clause = format!("WHERE {}", conditions.join(" AND "));
 
         let order = if before.is_some() && after.is_none() {
             "DESC"
@@ -158,7 +175,7 @@ impl Db {
         };
 
         let sql = format!(
-            "SELECT id, ed25519, tags, body, allow_list, disallow, signature, created_at
+            "SELECT id, ed25519, channel, tags, body, allow_list, disallow, signature, created_at
              FROM messages {where_clause} ORDER BY id {order} LIMIT ?",
         );
         param_values.push(Box::new(limit + 1)); // fetch one extra to detect has_more
@@ -168,19 +185,20 @@ impl Db {
         let mut stmt = conn.prepare(&sql).unwrap();
         let rows = stmt
             .query_map(params_ref.as_slice(), |row| {
-                let tags_str: String = row.get(2)?;
-                let body_str: String = row.get(3)?;
-                let allow_str: Option<String> = row.get(4)?;
-                let disallow_str: Option<String> = row.get(5)?;
+                let tags_str: String = row.get(3)?;
+                let body_str: String = row.get(4)?;
+                let allow_str: Option<String> = row.get(5)?;
+                let disallow_str: Option<String> = row.get(6)?;
                 Ok(StoredMessage {
                     id: row.get(0)?,
                     ed25519: row.get(1)?,
+                    channel: row.get(2)?,
                     tags: serde_json::from_str(&tags_str).unwrap_or_default(),
                     body: serde_json::from_str(&body_str).unwrap_or_default(),
                     allow: allow_str.map(|s| serde_json::from_str(&s).unwrap_or_default()),
                     disallow: disallow_str.map(|s| serde_json::from_str(&s).unwrap_or_default()),
-                    signature: row.get(6)?,
-                    created_at: row.get(7)?,
+                    signature: row.get(7)?,
+                    created_at: row.get(8)?,
                 })
             })
             .unwrap();
@@ -209,6 +227,7 @@ impl Db {
 
     pub fn last_modified(
         &self,
+        channel: &str,
         tag_filter: &Option<Vec<String>>,
         viewer_pubkey: Option<&str>,
     ) -> (Option<String>, Option<i64>) {
@@ -216,26 +235,27 @@ impl Db {
         // Get recent messages and filter in Rust for consistency.
         let mut stmt = conn
             .prepare(
-                "SELECT id, ed25519, tags, body, allow_list, disallow, signature, created_at
-                 FROM messages ORDER BY id DESC LIMIT 100",
+                "SELECT id, ed25519, channel, tags, body, allow_list, disallow, signature, created_at
+                 FROM messages WHERE channel = ? ORDER BY id DESC LIMIT 100",
             )
             .unwrap();
 
         let rows = stmt
-            .query_map([], |row| {
-                let tags_str: String = row.get(2)?;
-                let body_str: String = row.get(3)?;
-                let allow_str: Option<String> = row.get(4)?;
-                let disallow_str: Option<String> = row.get(5)?;
+            .query_map([channel], |row| {
+                let tags_str: String = row.get(3)?;
+                let body_str: String = row.get(4)?;
+                let allow_str: Option<String> = row.get(5)?;
+                let disallow_str: Option<String> = row.get(6)?;
                 Ok(StoredMessage {
                     id: row.get(0)?,
                     ed25519: row.get(1)?,
+                    channel: row.get(2)?,
                     tags: serde_json::from_str(&tags_str).unwrap_or_default(),
                     body: serde_json::from_str(&body_str).unwrap_or_default(),
                     allow: allow_str.map(|s| serde_json::from_str(&s).unwrap_or_default()),
                     disallow: disallow_str.map(|s| serde_json::from_str(&s).unwrap_or_default()),
-                    signature: row.get(6)?,
-                    created_at: row.get(7)?,
+                    signature: row.get(7)?,
+                    created_at: row.get(8)?,
                 })
             })
             .unwrap();

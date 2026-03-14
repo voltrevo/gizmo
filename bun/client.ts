@@ -1,4 +1,4 @@
-import { Signer, canonicalPayload, sign } from "./crypto.ts";
+import { Signer } from "./crypto.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -14,6 +14,7 @@ export interface GizmoOptions {
 export interface StoredMessage {
   id: number;
   ed25519: string;
+  channel: string;
   tags: string[];
   body: unknown;
   allow?: string[];
@@ -28,6 +29,7 @@ export interface HistoryResponse {
 }
 
 export interface HistoryQuery {
+  channel?: string;
   after?: number;
   before?: number;
   limit?: number;
@@ -81,6 +83,7 @@ export class GizmoClient {
 
   async history(query: HistoryQuery = {}): Promise<HistoryResponse> {
     const params = new URLSearchParams();
+    if (query.channel) params.set("channel", query.channel);
     if (query.after != null) params.set("after", String(query.after));
     if (query.before != null) params.set("before", String(query.before));
     if (query.limit != null) params.set("limit", String(query.limit));
@@ -108,8 +111,9 @@ export class GizmoClient {
     }
   }
 
-  async lastModified(tags?: string[]): Promise<LastModifiedResponse> {
+  async lastModified(tags?: string[], channel?: string): Promise<LastModifiedResponse> {
     const params = new URLSearchParams();
+    if (channel) params.set("channel", channel);
     if (tags?.length) params.set("tags", tags.join(","));
 
     const qs = params.toString();
@@ -216,19 +220,21 @@ export class GizmoClient {
 
   /** Publish a message. Returns the server-assigned message id. */
   async publish(opts: {
+    channel?: string;
     tags: string[];
     body: unknown;
     allow?: string[];
     disallow?: string[];
   }): Promise<number> {
-    const allow = opts.allow ?? null;
-    const disallow = opts.disallow ?? null;
-    const signature = this.signer.signPayload(
-      opts.tags,
-      opts.body,
-      allow,
-      disallow,
-    );
+    // Build message fields in deterministic order (must match Rust's serde order).
+    const msg: Record<string, unknown> = {};
+    if (opts.channel) msg.channel = opts.channel;
+    msg.tags = opts.tags;
+    msg.body = opts.body;
+    if (opts.allow) msg.allow = opts.allow;
+    if (opts.disallow) msg.disallow = opts.disallow;
+
+    const signature = this.signer.signPayload(msg);
 
     const promise = new Promise<number>((resolve) => {
       this.pendingResolves.set("publish", resolve as (v: unknown) => void);
@@ -236,10 +242,7 @@ export class GizmoClient {
 
     this.send({
       type: "publish",
-      tags: opts.tags,
-      body: opts.body,
-      allow,
-      disallow,
+      ...msg,
       signature,
     });
 
@@ -249,10 +252,9 @@ export class GizmoClient {
   /** Subscribe to live messages. Returns a Subscription handle. */
   async subscribe(
     handler: MessageHandler,
-    tags?: string[],
-    subId?: string,
+    opts?: { tags?: string[]; channel?: string; subId?: string },
   ): Promise<Subscription> {
-    const id = subId ?? `sub-${++this.subCounter}`;
+    const id = opts?.subId ?? `sub-${++this.subCounter}`;
     this.messageHandlers.set(id, handler);
 
     const promise = new Promise<void>((resolve) => {
@@ -262,7 +264,8 @@ export class GizmoClient {
     this.send({
       type: "subscribe",
       sub_id: id,
-      ...(tags ? { tags } : {}),
+      ...(opts?.channel ? { channel: opts.channel } : {}),
+      ...(opts?.tags ? { tags: opts.tags } : {}),
     });
 
     await promise;

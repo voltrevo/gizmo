@@ -1,5 +1,5 @@
 use crate::db::is_visible_to;
-use crate::models::*;
+use crate::models::{resolve_channel, ClientEnvelope, IncomingMessage, ServerEnvelope};
 use crate::server::AppState;
 use axum::extract::ws::{Message, WebSocket};
 use ed25519_dalek::{Signature, VerifyingKey};
@@ -26,15 +26,16 @@ pub async fn handle_ws(socket: WebSocket, state: Arc<AppState>, client_pubkey: S
         }
     });
 
-    // Track subscriptions: sub_id → optional tag filter.
-    let mut subs: HashMap<String, Option<Vec<String>>> = HashMap::new();
+    // Track subscriptions: sub_id → (channel, optional tag filter).
+    type SubValue = (String, Option<Vec<String>>);
+    let mut subs: HashMap<String, SubValue> = HashMap::new();
 
     // Subscribe to the broadcast channel.
     let mut broadcast_rx = state.broadcast_tx.subscribe();
 
     // Spawn a task that listens to broadcast and forwards matching messages.
     let tx_clone = tx.clone();
-    let subs_shared: Arc<tokio::sync::RwLock<HashMap<String, Option<Vec<String>>>>> =
+    let subs_shared: Arc<tokio::sync::RwLock<HashMap<String, SubValue>>> =
         Arc::new(tokio::sync::RwLock::new(HashMap::new()));
     let subs_reader = subs_shared.clone();
     let pubkey_for_broadcast = client_pubkey.clone();
@@ -46,7 +47,10 @@ pub async fn handle_ws(socket: WebSocket, state: Arc<AppState>, client_pubkey: S
                 continue;
             }
             let subs = subs_reader.read().await;
-            for (sub_id, tag_filter) in subs.iter() {
+            for (sub_id, (channel, tag_filter)) in subs.iter() {
+                if msg.channel != *channel {
+                    continue;
+                }
                 let matches = match tag_filter {
                     Some(tags) => tags.iter().any(|t| msg.tags.contains(t)),
                     None => true,
@@ -95,9 +99,17 @@ pub async fn handle_ws(socket: WebSocket, state: Arc<AppState>, client_pubkey: S
                     let _ = tx.send(ServerEnvelope::Error { detail: e });
                 }
             }
-            ClientEnvelope::Subscribe { sub_id, tags } => {
-                subs.insert(sub_id.clone(), tags.clone());
-                subs_shared.write().await.insert(sub_id.clone(), tags);
+            ClientEnvelope::Subscribe { sub_id, channel, tags } => {
+                let ch = match resolve_channel(channel.as_deref()) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        let _ = tx.send(ServerEnvelope::Error { detail: e });
+                        continue;
+                    }
+                };
+                let val = (ch, tags);
+                subs.insert(sub_id.clone(), val.clone());
+                subs_shared.write().await.insert(sub_id.clone(), val);
                 let _ = tx.send(ServerEnvelope::Subscribed { sub_id });
             }
             ClientEnvelope::Unsubscribe { sub_id } => {
@@ -128,9 +140,11 @@ fn handle_publish(
         return Err("at least one tag is required".into());
     }
 
+    // Resolve and validate channel.
+    let channel = resolve_channel(msg.channel.as_deref())?;
+
     // Verify signature.
-    // The canonical payload to sign is: tags + body + allow + disallow (JSON, sorted keys).
-    let canonical = canonical_payload(&msg.tags, &msg.body, &msg.allow, &msg.disallow);
+    let canonical = canonical_payload(&msg);
     let sig_bytes =
         hex::decode(&msg.signature).map_err(|_| "signature must be hex-encoded".to_string())?;
     let signature =
@@ -153,6 +167,7 @@ fn handle_publish(
     // Store.
     let stored = state.db.insert_message(
         client_pubkey,
+        &channel,
         &msg.tags,
         &msg.body,
         &msg.allow,
@@ -174,19 +189,13 @@ fn handle_publish(
 }
 
 /// Build the canonical string that clients must sign.
-pub fn canonical_payload(
-    tags: &[String],
-    body: &serde_json::Value,
-    allow: &Option<Vec<String>>,
-    disallow: &Option<Vec<String>>,
-) -> String {
-    let obj = serde_json::json!({
-        "tags": tags,
-        "body": body,
-        "allow": allow,
-        "disallow": disallow,
-    });
-    // Use serde_json default which sorts nothing — but the client must produce
-    // the exact same JSON. We document the canonical form.
+/// Serializes the incoming message as JSON, minus the `signature` and `ed25519` fields.
+/// Key order is preserved by serde_json's `preserve_order` feature.
+pub fn canonical_payload(msg: &IncomingMessage) -> String {
+    let mut obj = serde_json::to_value(msg).unwrap();
+    if let Some(map) = obj.as_object_mut() {
+        map.remove("signature");
+        map.remove("ed25519");
+    }
     serde_json::to_string(&obj).unwrap()
 }

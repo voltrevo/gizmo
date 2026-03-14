@@ -60,7 +60,7 @@ test("WebSocket: publish and receive via subscription", async () => {
   await client.connect();
 
   const received: unknown[] = [];
-  await client.subscribe((msg) => received.push(msg), ["chat"]);
+  await client.subscribe((msg) => received.push(msg), { tags: ["chat"] });
 
   const id = await client.publish({
     tags: ["chat"],
@@ -160,8 +160,8 @@ test("multiple subscriptions on same connection", async () => {
   const chatMsgs: unknown[] = [];
   const systemMsgs: unknown[] = [];
 
-  await client.subscribe((msg) => chatMsgs.push(msg), ["multi-chat"]);
-  await client.subscribe((msg) => systemMsgs.push(msg), ["multi-system"]);
+  await client.subscribe((msg) => chatMsgs.push(msg), { tags: ["multi-chat"] });
+  await client.subscribe((msg) => systemMsgs.push(msg), { tags: ["multi-system"] });
 
   await client.publish({ tags: ["multi-chat"], body: { text: "chat msg" } });
   await client.publish({ tags: ["multi-system"], body: { text: "system msg" } });
@@ -174,4 +174,72 @@ test("multiple subscriptions on same connection", async () => {
   expect((systemMsgs[0] as any).body.text).toBe("system msg");
 
   client.disconnect();
+});
+
+test("channels are isolated: messages don't cross channels", async () => {
+  const signer = Signer.generate();
+  const client = new GizmoClient({ url: URL, token: TOKEN, signer });
+
+  await client.connect();
+
+  const chA: unknown[] = [];
+  const chB: unknown[] = [];
+
+  await client.subscribe((msg) => chA.push(msg), { channel: "test-a" });
+  await client.subscribe((msg) => chB.push(msg), { channel: "test-b" });
+
+  await client.publish({ channel: "test-a", tags: ["x"], body: { ch: "a" } });
+  await client.publish({ channel: "test-b", tags: ["x"], body: { ch: "b" } });
+
+  await Bun.sleep(100);
+
+  expect(chA).toHaveLength(1);
+  expect(chB).toHaveLength(1);
+  expect((chA[0] as any).body.ch).toBe("a");
+  expect((chB[0] as any).body.ch).toBe("b");
+
+  client.disconnect();
+});
+
+test("history is scoped to channel", async () => {
+  const signer = Signer.generate();
+  const client = new GizmoClient({ url: URL, token: TOKEN, signer });
+
+  await client.connect();
+
+  const tag = `ch-hist-${Date.now()}`;
+  await client.publish({ channel: "hist-a", tags: [tag], body: { n: 1 } });
+  await client.publish({ channel: "hist-b", tags: [tag], body: { n: 2 } });
+
+  client.disconnect();
+
+  const histA = await client.history({ channel: "hist-a", tags: [tag] });
+  const histB = await client.history({ channel: "hist-b", tags: [tag] });
+
+  expect(histA.messages).toHaveLength(1);
+  expect((histA.messages[0] as any).body.n).toBe(1);
+  expect(histB.messages).toHaveLength(1);
+  expect((histB.messages[0] as any).body.n).toBe(2);
+});
+
+test("default channel works when channel omitted", async () => {
+  const signer = Signer.generate();
+  const client = new GizmoClient({ url: URL, token: TOKEN, signer });
+
+  await client.connect();
+
+  const tag = `default-${Date.now()}`;
+  // Publish without specifying channel → goes to "default"
+  await client.publish({ tags: [tag], body: { test: true } });
+
+  client.disconnect();
+
+  // Query explicitly with channel "default"
+  const hist = await client.history({ channel: "default", tags: [tag] });
+  expect(hist.messages).toHaveLength(1);
+  expect((hist.messages[0] as any).channel).toBe("default");
+
+  // Query without specifying channel (should also hit "default")
+  const hist2 = await client.history({ tags: [tag] });
+  expect(hist2.messages).toHaveLength(1);
 });

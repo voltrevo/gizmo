@@ -84,6 +84,10 @@ enum Command {
         #[arg(long, env = "GIZMO_SECRET_KEY")]
         secret_key: String,
 
+        /// Channel (defaults to "default")
+        #[arg(long)]
+        channel: Option<String>,
+
         /// Tags (comma-separated)
         #[arg(long)]
         tags: String,
@@ -114,6 +118,10 @@ enum Command {
         /// Hex-encoded ed25519 public key (for access control filtering)
         #[arg(long, env = "GIZMO_PUBLIC_KEY")]
         public_key: Option<String>,
+
+        /// Channel (defaults to "default")
+        #[arg(long)]
+        channel: Option<String>,
 
         /// Return messages after this ID
         #[arg(long)]
@@ -310,6 +318,7 @@ async fn main() {
             url,
             token,
             secret_key,
+            channel,
             tags,
             body,
             allow,
@@ -345,8 +354,17 @@ async fn main() {
                     .collect::<Vec<_>>()
             });
 
-            let canonical =
-                ws::canonical_payload(&tags_vec, &body_value, &allow_vec, &disallow_vec);
+            // Build the incoming message to get canonical payload for signing.
+            let incoming = models::IncomingMessage {
+                channel: channel.clone(),
+                tags: tags_vec.clone(),
+                body: body_value.clone(),
+                allow: allow_vec.clone(),
+                disallow: disallow_vec.clone(),
+                signature: String::new(), // placeholder, removed by canonical_payload
+                ed25519: None,
+            };
+            let canonical = ws::canonical_payload(&incoming);
             let signature = signing_key.sign(canonical.as_bytes());
             let sig_hex = hex::encode(signature.to_bytes());
 
@@ -369,7 +387,7 @@ async fn main() {
 
             let (mut write, mut read) = ws_stream.split();
 
-            let msg = serde_json::json!({
+            let mut msg = serde_json::json!({
                 "type": "publish",
                 "tags": tags_vec,
                 "body": body_value,
@@ -377,6 +395,9 @@ async fn main() {
                 "disallow": disallow_vec,
                 "signature": sig_hex,
             });
+            if let Some(ref ch) = channel {
+                msg["channel"] = serde_json::json!(ch);
+            }
 
             write
                 .send(tungstenite::Message::Text(msg.to_string().into()))
@@ -394,6 +415,7 @@ async fn main() {
             url,
             token,
             public_key,
+            channel,
             after,
             before,
             limit,
@@ -409,6 +431,9 @@ async fn main() {
             }
 
             let mut params = Vec::new();
+            if let Some(ref ch) = channel {
+                params.push(("channel", ch.clone()));
+            }
             if let Some(a) = after {
                 params.push(("after", a.to_string()));
             }

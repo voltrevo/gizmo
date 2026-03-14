@@ -19,14 +19,12 @@ export function generateKeypair(): Keypair {
   };
 }
 
-/** Builds the canonical JSON string that must be signed. */
-export function canonicalPayload(
-  tags: string[],
-  body: unknown,
-  allow: string[] | null,
-  disallow: string[] | null,
-): string {
-  return JSON.stringify({ tags, body, allow, disallow });
+/** Builds the canonical JSON string that must be signed.
+ *  Takes the message object and removes the `signature` field,
+ *  then JSON-stringifies the rest. Key order matches insertion order. */
+export function canonicalPayload(msg: Record<string, unknown>): string {
+  const { signature, ...rest } = msg;
+  return JSON.stringify(rest);
 }
 
 /** Signs and produces the hex-encoded ed25519 signature. */
@@ -67,13 +65,8 @@ export class Signer {
     return sign(this.secretKey, message);
   }
 
-  signPayload(
-    tags: string[],
-    body: unknown,
-    allow: string[] | null = null,
-    disallow: string[] | null = null,
-  ): string {
-    const canonical = canonicalPayload(tags, body, allow, disallow);
+  signPayload(msg: Record<string, unknown>): string {
+    const canonical = canonicalPayload(msg);
     return this.sign(canonical);
   }
 }

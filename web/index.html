@@ -32,6 +32,7 @@
 <div id="status">connecting...</div>
 <div id="messages"></div>
 <div id="input-bar">
+  <input id="channel-input" type="text" placeholder="channel" value="default" style="max-width: 120px;">
   <input id="text-input" type="text" placeholder="type a message..." autofocus>
   <button id="send-btn">send</button>
 </div>
@@ -60,12 +61,13 @@ function loadOrCreateIdentity() {
   return { secretKey: skHex, publicKey: pkHex };
 }
 
-function canonicalPayload(tags, body, allow, disallow) {
-  return JSON.stringify({ tags, body, allow, disallow });
+function canonicalPayload(msg) {
+  const { signature, ...rest } = msg;
+  return JSON.stringify(rest);
 }
 
-function signPayload(sk, tags, body, allow = null, disallow = null) {
-  const canon = canonicalPayload(tags, body, allow, disallow);
+function signMessage(sk, msg) {
+  const canon = canonicalPayload(msg);
   const sig = ed.sign(new TextEncoder().encode(canon), hexToBytes(sk));
   return bytesToHex(sig);
 }
@@ -135,9 +137,10 @@ function escapeHtml(s) {
 
 // Load history
 async function loadHistory() {
+  const channel = document.getElementById("channel-input").value.trim() || "default";
   let after;
   while (true) {
-    const params = new URLSearchParams({ limit: "200" });
+    const params = new URLSearchParams({ limit: "200", channel });
     if (after != null) params.set("after", String(after));
 
     const resp = await fetch(`${SERVER}/history?${params}`, {
@@ -167,8 +170,9 @@ function connectWs() {
 
   ws.onopen = () => {
     statusEl.innerHTML = `identity: <span class="id">${identity.publicKey.slice(0, 16)}...</span> | <span class="ok">connected</span>`;
-    // Subscribe to all
-    ws.send(JSON.stringify({ type: "subscribe", sub_id: "all" }));
+    // Subscribe to current channel
+    const channel = document.getElementById("channel-input").value.trim() || "default";
+    ws.send(JSON.stringify({ type: "subscribe", sub_id: "all", channel }));
   };
 
   ws.onmessage = (ev) => {
@@ -193,14 +197,17 @@ async function sendMessage() {
   const text = textInput.value.trim();
   if (!text || !ws || ws.readyState !== 1) return;
 
-  const tags = ["debug"];
-  const body = { text };
-  const sig = signPayload(identity.secretKey, tags, body);
+  const channel = document.getElementById("channel-input").value.trim() || "default";
+  const msg = {
+    channel,
+    tags: ["debug"],
+    body: { text },
+  };
+  const sig = signMessage(identity.secretKey, msg);
 
   ws.send(JSON.stringify({
     type: "publish",
-    tags,
-    body,
+    ...msg,
     signature: sig,
   }));
 

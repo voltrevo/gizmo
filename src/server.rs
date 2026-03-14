@@ -1,5 +1,6 @@
 use crate::db::Db;
 use crate::models::*;
+use crate::models::resolve_channel;
 use crate::ws;
 use axum::{
     extract::{Query, State, WebSocketUpgrade},
@@ -119,6 +120,11 @@ async fn history_handler(
 
     let viewer = extract_pubkey(&headers).ok();
 
+    let channel = match resolve_channel(query.channel.as_deref()) {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response(),
+    };
+
     let limit = query.limit.unwrap_or(50).min(200).max(1);
     let tag_filter = query.tags.as_ref().map(|t| {
         t.split(',')
@@ -130,7 +136,7 @@ async fn history_handler(
     let (messages, has_more) =
         state
             .db
-            .query_messages(query.after, query.before, limit, &tag_filter, viewer.as_deref());
+            .query_messages(&channel, query.after, query.before, limit, &tag_filter, viewer.as_deref());
 
     Json(HistoryResponse { messages, has_more }).into_response()
 }
@@ -146,6 +152,11 @@ async fn last_modified_handler(
 
     let viewer = extract_pubkey(&headers).ok();
 
+    let channel = match resolve_channel(query.channel.as_deref()) {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response(),
+    };
+
     let tag_filter = query.tags.as_ref().map(|t| {
         t.split(',')
             .map(|s| s.trim().to_string())
@@ -153,7 +164,7 @@ async fn last_modified_handler(
             .collect::<Vec<_>>()
     });
 
-    let (last_modified, last_id) = state.db.last_modified(&tag_filter, viewer.as_deref());
+    let (last_modified, last_id) = state.db.last_modified(&channel, &tag_filter, viewer.as_deref());
 
     Json(LastModifiedResponse {
         last_modified,
