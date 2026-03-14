@@ -82,15 +82,27 @@ async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    Query(ws_query): Query<WsQuery>,
 ) -> impl IntoResponse {
-    if let Err((status, msg)) = extract_bearer(&headers, &state.token) {
-        return (status, msg).into_response();
+    // Try headers first, fall back to query params (for browser WebSocket).
+    let bearer_ok = extract_bearer(&headers, &state.token).is_ok()
+        || ws_query.token.as_deref() == Some(&state.token);
+    if !bearer_ok {
+        return (StatusCode::UNAUTHORIZED, "invalid or missing token").into_response();
     }
 
-    let pubkey = match extract_pubkey(&headers) {
-        Ok(pk) => pk,
-        Err((status, msg)) => return (status, msg).into_response(),
+    let pubkey = extract_pubkey(&headers).ok().or(ws_query.pubkey);
+    let pubkey = match pubkey {
+        Some(pk) => pk,
+        None => return (StatusCode::BAD_REQUEST, "missing pubkey").into_response(),
     };
+
+    // Validate pubkey format.
+    let pk_bytes = match hex::decode(&pubkey) {
+        Ok(b) if b.len() == 32 => b,
+        _ => return (StatusCode::BAD_REQUEST, "pubkey must be 64 hex chars").into_response(),
+    };
+    drop(pk_bytes);
 
     ws.max_message_size(16_384)
         .on_upgrade(move |socket| ws::handle_ws(socket, state, pubkey))

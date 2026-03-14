@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gizmo debug</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: monospace; background: #111; color: #ddd; display: flex; flex-direction: column; height: 100vh; }
+  #status { padding: 8px 12px; background: #222; font-size: 12px; border-bottom: 1px solid #333; }
+  #status .id { color: #6cf; }
+  #status .ok { color: #6f6; }
+  #status .err { color: #f66; }
+  #messages { flex: 1; overflow-y: auto; padding: 12px; font-size: 13px; }
+  .msg { margin-bottom: 8px; padding: 6px 8px; background: #1a1a1a; border-left: 3px solid #444; border-radius: 2px; }
+  .msg .meta { color: #888; font-size: 11px; margin-bottom: 2px; }
+  .msg .meta .pk { color: #6cf; }
+  .msg .meta .tags { color: #f90; }
+  .msg .body { white-space: pre-wrap; word-break: break-word; }
+  .msg.self { border-left-color: #6cf; }
+  #input-bar { display: flex; padding: 8px; background: #222; border-top: 1px solid #333; gap: 8px; }
+  #input-bar input { flex: 1; background: #1a1a1a; border: 1px solid #444; color: #ddd; padding: 8px; font-family: monospace; font-size: 14px; border-radius: 4px; }
+  #input-bar button { background: #335; border: 1px solid #558; color: #ddd; padding: 8px 16px; font-family: monospace; cursor: pointer; border-radius: 4px; }
+  #input-bar button:hover { background: #447; }
+  #config { padding: 12px; background: #1a1a1a; }
+  #config input { background: #222; border: 1px solid #444; color: #ddd; padding: 6px; font-family: monospace; width: 100%; margin: 4px 0; }
+  #config button { background: #335; border: 1px solid #558; color: #ddd; padding: 6px 12px; font-family: monospace; cursor: pointer; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<div id="status">connecting...</div>
+<div id="messages"></div>
+<div id="input-bar">
+  <input id="text-input" type="text" placeholder="type a message..." autofocus>
+  <button id="send-btn">send</button>
+</div>
+
+<script type="module">
+import * as ed from "https://esm.sh/@noble/ed25519@3";
+import { sha512 } from "https://esm.sh/@noble/hashes@2/sha2.js";
+
+ed.hashes.sha512 = sha512;
+
+const { bytesToHex, hexToBytes } = ed.etc;
+
+// ── Identity ──────────────────────────────────────────────────────────
+
+function loadOrCreateIdentity() {
+  let sk = localStorage.getItem("gizmo_secret_key");
+  if (sk && sk.length === 64) {
+    const pub_ = bytesToHex(ed.getPublicKey(hexToBytes(sk)));
+    return { secretKey: sk, publicKey: pub_ };
+  }
+  const secretKey = ed.utils.randomSecretKey();
+  const publicKey = ed.getPublicKey(secretKey);
+  const skHex = bytesToHex(secretKey);
+  const pkHex = bytesToHex(publicKey);
+  localStorage.setItem("gizmo_secret_key", skHex);
+  return { secretKey: skHex, publicKey: pkHex };
+}
+
+function canonicalPayload(tags, body, allow, disallow) {
+  return JSON.stringify({ tags, body, allow, disallow });
+}
+
+function signPayload(sk, tags, body, allow = null, disallow = null) {
+  const canon = canonicalPayload(tags, body, allow, disallow);
+  const sig = ed.sign(new TextEncoder().encode(canon), hexToBytes(sk));
+  return bytesToHex(sig);
+}
+
+// ── Config ────────────────────────────────────────────────────────────
+
+const params = new URLSearchParams(location.search);
+const SERVER = params.get("server") || localStorage.getItem("gizmo_server") || location.origin;
+const TOKEN = params.get("token") || localStorage.getItem("gizmo_token") || "";
+
+if (params.get("server")) localStorage.setItem("gizmo_server", SERVER);
+if (params.get("token")) localStorage.setItem("gizmo_token", TOKEN);
+
+if (!TOKEN) {
+  document.getElementById("messages").innerHTML = `
+    <div id="config">
+      <div>Enter server details:</div>
+      <input id="cfg-server" placeholder="server url (e.g. https://gizmo.voltrevo.com)" value="${SERVER}">
+      <input id="cfg-token" placeholder="bearer token" type="password">
+      <button id="cfg-go">connect</button>
+    </div>
+  `;
+  document.getElementById("cfg-go").onclick = () => {
+    const s = document.getElementById("cfg-server").value.trim();
+    const t = document.getElementById("cfg-token").value.trim();
+    if (s) localStorage.setItem("gizmo_server", s);
+    if (t) localStorage.setItem("gizmo_token", t);
+    location.reload();
+  };
+  throw new Error("need config");
+}
+
+// ── App ───────────────────────────────────────────────────────────────
+
+const identity = loadOrCreateIdentity();
+const statusEl = document.getElementById("status");
+const messagesEl = document.getElementById("messages");
+const textInput = document.getElementById("text-input");
+const sendBtn = document.getElementById("send-btn");
+
+statusEl.innerHTML = `identity: <span class="id">${identity.publicKey.slice(0, 16)}...</span> | <span class="err">connecting...</span>`;
+
+function renderMessage(msg) {
+  const div = document.createElement("div");
+  const isSelf = msg.ed25519 === identity.publicKey;
+  div.className = `msg${isSelf ? " self" : ""}`;
+
+  const time = new Date(msg.created_at + "Z").toLocaleTimeString();
+  const pk = msg.ed25519.slice(0, 12);
+  const tags = msg.tags.join(", ");
+
+  let bodyText;
+  if (typeof msg.body === "object" && msg.body !== null && "text" in msg.body) {
+    bodyText = msg.body.text;
+  } else {
+    bodyText = JSON.stringify(msg.body, null, 2);
+  }
+
+  div.innerHTML = `<div class="meta"><span class="pk">${pk}</span> <span class="tags">[${tags}]</span> ${time} #${msg.id}</div><div class="body">${escapeHtml(bodyText)}</div>`;
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Load history
+async function loadHistory() {
+  let after;
+  while (true) {
+    const params = new URLSearchParams({ limit: "200" });
+    if (after != null) params.set("after", String(after));
+
+    const resp = await fetch(`${SERVER}/history?${params}`, {
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "X-Ed25519-Pubkey": identity.publicKey,
+      },
+    });
+    if (!resp.ok) break;
+    const data = await resp.json();
+    for (const msg of data.messages) renderMessage(msg);
+    if (!data.has_more || data.messages.length === 0) break;
+    after = data.messages[data.messages.length - 1].id;
+  }
+}
+
+// WebSocket
+const wsProto = SERVER.startsWith("https") ? "wss" : "ws";
+const wsBase = SERVER.replace(/^https?/, wsProto);
+const wsUrl = `${wsBase}/ws?token=${encodeURIComponent(TOKEN)}&pubkey=${encodeURIComponent(identity.publicKey)}`;
+
+let ws;
+let seenIds = new Set();
+
+function connectWs() {
+  ws = new WebSocket(wsUrl);
+
+  ws.onopen = () => {
+    statusEl.innerHTML = `identity: <span class="id">${identity.publicKey.slice(0, 16)}...</span> | <span class="ok">connected</span>`;
+    // Subscribe to all
+    ws.send(JSON.stringify({ type: "subscribe", sub_id: "all" }));
+  };
+
+  ws.onmessage = (ev) => {
+    const data = JSON.parse(ev.data);
+    if (data.type === "message") {
+      if (!seenIds.has(data.message.id)) {
+        seenIds.add(data.message.id);
+        renderMessage(data.message);
+      }
+    } else if (data.type === "error") {
+      console.error("server error:", data.detail);
+    }
+  };
+
+  ws.onclose = () => {
+    statusEl.innerHTML = `identity: <span class="id">${identity.publicKey.slice(0, 16)}...</span> | <span class="err">disconnected, reconnecting...</span>`;
+    setTimeout(connectWs, 2000);
+  };
+}
+
+async function sendMessage() {
+  const text = textInput.value.trim();
+  if (!text || !ws || ws.readyState !== 1) return;
+
+  const tags = ["debug"];
+  const body = { text };
+  const sig = signPayload(identity.secretKey, tags, body);
+
+  ws.send(JSON.stringify({
+    type: "publish",
+    tags,
+    body,
+    signature: sig,
+  }));
+
+  textInput.value = "";
+}
+
+sendBtn.onclick = sendMessage;
+textInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") sendMessage();
+});
+
+// Boot
+await loadHistory();
+// Mark all history ids as seen so we don't duplicate
+document.querySelectorAll(".msg").forEach((el) => {
+  const m = el.querySelector(".meta")?.textContent.match(/#(\d+)/);
+  if (m) seenIds.add(parseInt(m[1]));
+});
+connectWs();
+</script>
+</body>
+</html>

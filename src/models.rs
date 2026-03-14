@@ -67,6 +67,13 @@ pub enum ServerEnvelope {
     Error { detail: String },
 }
 
+/// Query params for WebSocket auth (browser fallback).
+#[derive(Debug, Deserialize, Default)]
+pub struct WsQuery {
+    pub token: Option<String>,
+    pub pubkey: Option<String>,
+}
+
 /// Query params for the HTTP history endpoint.
 #[derive(Debug, Deserialize)]
 pub struct HistoryQuery {
