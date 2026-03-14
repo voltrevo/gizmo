@@ -12,4 +12,6 @@ jobs:
         run: |
           curl -sf --no-buffer -X POST \
             -H "Authorization: Bearer ${{ secrets.GIZMO_DEPLOY_TOKEN }}" \
-            https://gizmo.voltrevo.com/deploy
+            https://gizmo.voltrevo.com/deploy \
+            | tee /tmp/deploy.log
+          tail -1 /tmp/deploy.log | grep -q "deploy: success"
