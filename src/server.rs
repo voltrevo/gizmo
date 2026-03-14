@@ -9,14 +9,67 @@ use axum::{
     routing::get,
     Router,
 };
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
+
+/// Token bucket rate limiter for a single identity.
+struct TokenBucket {
+    tokens: f64,
+    last_refill: Instant,
+}
+
+/// Per-identity publish rate limiter.
+/// Capacity 5 tokens, refill rate 10/min (1 token per 6 seconds).
+pub struct RateLimiter {
+    buckets: Mutex<HashMap<String, TokenBucket>>,
+    capacity: f64,
+    refill_interval_secs: f64,
+}
+
+impl RateLimiter {
+    pub fn new() -> Self {
+        Self {
+            buckets: Mutex::new(HashMap::new()),
+            capacity: 5.0,
+            refill_interval_secs: 6.0, // 1 token per 6s = 10/min
+        }
+    }
+
+    /// Try to consume one token. Returns Ok(()) or Err(seconds until next token).
+    pub fn try_consume(&self, pubkey: &str) -> Result<(), f64> {
+        let mut buckets = self.buckets.lock().unwrap();
+        let now = Instant::now();
+
+        let bucket = buckets.entry(pubkey.to_string()).or_insert(TokenBucket {
+            tokens: self.capacity,
+            last_refill: now,
+        });
+
+        // Refill tokens based on elapsed time.
+        let elapsed = now.duration_since(bucket.last_refill).as_secs_f64();
+        let refilled = elapsed / self.refill_interval_secs;
+        bucket.tokens = (bucket.tokens + refilled).min(self.capacity);
+        bucket.last_refill = now;
+
+        if bucket.tokens >= 1.0 {
+            bucket.tokens -= 1.0;
+            Ok(())
+        } else {
+            let deficit = 1.0 - bucket.tokens;
+            let wait_secs = deficit * self.refill_interval_secs;
+            Err(wait_secs)
+        }
+    }
+}
 
 pub struct AppState {
     pub db: Arc<Db>,
     pub token: String,
     pub broadcast_tx: broadcast::Sender<StoredMessage>,
+    pub rate_limiter: RateLimiter,
 }
 
 impl AppState {
@@ -26,6 +79,7 @@ impl AppState {
             db: Arc::new(Db::new(db_path, max_bytes)),
             token,
             broadcast_tx,
+            rate_limiter: RateLimiter::new(),
         }
     }
 }

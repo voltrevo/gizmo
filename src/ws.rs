@@ -130,6 +130,14 @@ fn handle_publish(
     client_pubkey: &str,
     msg: IncomingMessage,
 ) -> Result<(), String> {
+    // Rate limit.
+    if let Err(wait_secs) = state.rate_limiter.try_consume(client_pubkey) {
+        return Err(format!(
+            "rate limited: try again in {:.1}s",
+            wait_secs
+        ));
+    }
+
     // Reject if client tried to set ed25519 field.
     if msg.ed25519.is_some() {
         return Err("ed25519 field must not be provided; it is set by the server".into());
