@@ -1,10 +1,10 @@
 {
-  "name": "bun",
+  "name": "gizmo-client",
   "module": "index.ts",
   "type": "module",
   "private": true,
-  "scripts": {
-    "cli": "bun run cli.ts"
+  "bin": {
+    "gizmo": "cli.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
