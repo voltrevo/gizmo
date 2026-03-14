@@ -485,11 +485,135 @@
 
   #scroll-bottom.visible { display: flex; }
 
+  /* ── Connection dot ─────────────────────────── */
+  .conn-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--text-muted);
+    transition: background 0.3s;
+  }
+  .conn-dot.connected { background: var(--accent-green); }
+  .conn-dot.error     { background: var(--accent-red); }
+  .conn-dot.connecting {
+    background: var(--accent-orange);
+    animation: dot-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes dot-pulse { 0%,100% { opacity:1; } 50% { opacity:0.35; } }
+
+  /* ── Search bar ─────────────────────────────── */
+  #search-bar {
+    display: none;
+    padding: 8px 16px;
+    background: var(--surface-panel);
+    border-bottom: 1px solid var(--border);
+    gap: 6px;
+    align-items: center;
+    flex-shrink: 0;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  #search-bar.open { display: flex; }
+
+  #search-input {
+    flex: 1;
+    background: var(--surface-raised);
+    border: 1px solid var(--border-strong);
+    color: var(--text-primary);
+    padding: 7px 12px;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    border-radius: var(--radius);
+    -webkit-appearance: none;
+    outline: none;
+    min-width: 0;
+  }
+  #search-input:focus { border-color: var(--accent-blue); }
+
+  #search-count {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    white-space: nowrap;
+    min-width: 40px;
+    text-align: center;
+  }
+
+  #search-bar button {
+    background: var(--surface-raised);
+    border: 1px solid var(--border-strong);
+    color: var(--text-primary);
+    width: 30px;
+    height: 30px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    flex-shrink: 0;
+  }
+  #search-bar button:active { background: var(--surface-muted); }
+
+  /* ── Search highlights ──────────────────────── */
+  .msg.search-match .body {
+    background: rgba(91,156,246,0.07);
+    border-radius: 4px;
+    padding: 2px 4px;
+    margin: -2px -4px;
+  }
+  .msg.search-current .body {
+    background: rgba(91,156,246,0.18);
+    border-radius: 4px;
+    padding: 2px 4px;
+    margin: -2px -4px;
+    outline: 1px solid var(--accent-blue);
+  }
+
+  /* ── Search open button ─────────────────────── */
+  #search-open-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 6px;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  #search-open-btn:hover { color: var(--text-secondary); }
+
+  /* ── Scroll badge ───────────────────────────── */
+  #scroll-badge {
+    display: none;
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    background: var(--accent-blue);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    border-radius: 10px;
+    padding: 1px 5px;
+    min-width: 18px;
+    text-align: center;
+    pointer-events: none;
+  }
+  #scroll-badge.visible { display: block; }
+
   /* ── Responsive ─────────────────────────────── */
   @media (min-width: 768px) {
     .msg { padding: 8px 24px; }
     #input-bar { padding: 12px 24px; }
     #status { padding: 10px 24px; }
+    #search-bar { padding: 8px 24px; }
   }
 </style>
 </head>
@@ -497,12 +621,22 @@
 
 <div id="status">
   <span class="left">
+    <span class="conn-dot connecting" id="conn-dot"></span>
     <span id="status-text">connecting...</span>
   </span>
   <div id="channel-controls">
     <input id="channel-input" type="text" placeholder="channel" value="default" autocapitalize="none" autocorrect="off" spellcheck="false">
     <button id="channel-switch">switch</button>
+    <button id="search-open-btn" aria-label="Search messages">&#x1F50D;</button>
   </div>
+</div>
+
+<div id="search-bar">
+  <input id="search-input" type="text" placeholder="Search messages…" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
+  <span id="search-count"></span>
+  <button id="search-prev" aria-label="Previous match">&#x2191;</button>
+  <button id="search-next" aria-label="Next match">&#x2193;</button>
+  <button id="search-close" aria-label="Close search">&#x2715;</button>
 </div>
 
 <div id="scroll-container">
@@ -512,7 +646,7 @@
   </div>
 </div>
 
-<button id="scroll-bottom" aria-label="Scroll to bottom">&#x2193;</button>
+<button id="scroll-bottom" aria-label="Scroll to bottom">&#x2193;<span id="scroll-badge"></span></button>
 
 <div id="input-bar">
   <textarea id="text-input" rows="1" placeholder='Message or JSON {"tags":[],"body":{}}' autofocus autocapitalize="sentences" autocorrect="on"></textarea>
@@ -883,6 +1017,7 @@ function renderMarkdown(text) {
 
 const identity = loadOrCreateIdentity();
 const statusTextEl = document.getElementById("status-text");
+const connDot = document.getElementById("conn-dot");
 const scrollContainer = document.getElementById("scroll-container");
 const scrollSpacer = document.getElementById("scroll-spacer");
 const messagesEl = document.getElementById("messages");
@@ -892,7 +1027,15 @@ const sendBtn = document.getElementById("send-btn");
 const channelInput = document.getElementById("channel-input");
 const channelSwitchBtn = document.getElementById("channel-switch");
 const scrollBottomBtn = document.getElementById("scroll-bottom");
+const scrollBadge = document.getElementById("scroll-badge");
 const modeHint = document.getElementById("mode-hint");
+const searchBar = document.getElementById("search-bar");
+const searchInput = document.getElementById("search-input");
+const searchCount = document.getElementById("search-count");
+const searchOpenBtn = document.getElementById("search-open-btn");
+const searchPrevBtn = document.getElementById("search-prev");
+const searchNextBtn = document.getElementById("search-next");
+const searchCloseBtn = document.getElementById("search-close");
 
 let currentChannel = "default";
 
@@ -912,6 +1055,13 @@ let isUserNearBottom = true;
 let isLoadingHistory = false;
 let hasMoreHistory = true;
 let oldestLoadedId = null;
+let unreadCount = 0;
+
+// ── Search state ──────────────────────────────────────────────────────────
+let searchQuery = "";
+let searchMatchIds = new Set();
+let searchMatches = []; // message ids in order
+let searchCurrentIdx = -1;
 
 function getTotalHeight() {
   let total = 0;
@@ -981,7 +1131,9 @@ function createMessageElement(msg, index) {
   const gap = prev ? (new Date(msg.created_at + "Z") - new Date(prev.created_at + "Z")) : Infinity;
   const isGrouped = prev && prev.ed25519 === msg.ed25519 && gap < 5 * 60 * 1000;
 
-  div.className = `msg${isSelf ? " self" : ""}${isGrouped ? " grouped" : ""}`;
+  const isSearchMatch = searchMatchIds.has(msg.id);
+  const isSearchCurrent = isSearchMatch && searchMatches[searchCurrentIdx] === msg.id;
+  div.className = `msg${isSelf ? " self" : ""}${isGrouped ? " grouped" : ""}${isSearchMatch ? " search-match" : ""}${isSearchCurrent ? " search-current" : ""}`;
   div.dataset.index = index;
 
   const time = new Date(msg.created_at + "Z").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -1067,9 +1219,15 @@ function scrollToBottom(smooth) {
   scrollContainer.scrollTo({ top: getTotalHeight(), behavior: smooth ? "smooth" : "instant" });
 }
 
+function updateScrollBadge() {
+  scrollBadge.textContent = unreadCount > 99 ? "99+" : String(unreadCount);
+  scrollBadge.classList.toggle("visible", unreadCount > 0);
+}
+
 function checkNearBottom() {
   const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
   isUserNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+  if (isUserNearBottom && unreadCount > 0) { unreadCount = 0; updateScrollBadge(); }
   scrollBottomBtn.classList.toggle("visible", !isUserNearBottom && allMessages.length > 0);
 }
 
@@ -1077,9 +1235,12 @@ function checkNearBottom() {
 
 function updateStatus(connState) {
   const name = getUsername(identity.publicKey);
-  const connHtml = connState === "connected"
-    ? `<span class="ok">&#x2022; connected</span>`
-    : `<span class="err">&#x2022; ${escapeHtml(connState)}</span>`;
+  const isConnected = connState === "connected";
+  const isError = connState.includes("fail") || connState.includes("error");
+  connDot.className = "conn-dot " + (isConnected ? "connected" : isError ? "error" : "connecting");
+  const connHtml = isConnected
+    ? `<span class="ok">connected</span>`
+    : `<span class="err">${escapeHtml(connState)}</span>`;
   statusTextEl.innerHTML = `<span class="id">${escapeHtml(name)}</span> <span class="ch">#${escapeHtml(currentChannel)}</span> ${connHtml}`;
 }
 
@@ -1159,7 +1320,7 @@ scrollContainer.addEventListener("scroll", () => {
   }
 }, { passive: true });
 
-scrollBottomBtn.onclick = () => scrollToBottom(true);
+scrollBottomBtn.onclick = () => { scrollToBottom(true); unreadCount = 0; updateScrollBadge(); };
 
 // ── WebSocket ─────────────────────────────────────────────────────────────
 
@@ -1184,9 +1345,15 @@ function connectWs() {
     if (data.type === "message") {
       const wasNearBottom = isUserNearBottom;
       addMessage(data.message);
+      if (searchQuery) { updateSearchMatches(); updateSearchCount(); }
       renderedRange = { start: -1, end: -1 };
       renderVirtualMessages();
-      if (wasNearBottom) requestAnimationFrame(() => scrollToBottom(true));
+      if (wasNearBottom) {
+        requestAnimationFrame(() => scrollToBottom(true));
+      } else {
+        unreadCount++;
+        updateScrollBadge();
+      }
     } else if (data.type === "error") {
       console.error("server error:", data.detail);
     }
@@ -1205,6 +1372,8 @@ function switchChannel(newChannel) {
   allMessages = []; messageMap.clear(); heightCache.clear(); expandedIds.clear();
   renderedRange = { start: 0, end: 0 }; messagesEl.innerHTML = "";
   hasMoreHistory = true; oldestLoadedId = null; isUserNearBottom = true;
+  unreadCount = 0; updateScrollBadge();
+  closeSearch();
   updateStatus(ws && ws.readyState === 1 ? "connected" : "connecting...");
   loadInitialHistory().then(() => subscribeToChannel());
 }
@@ -1266,6 +1435,98 @@ if (window.visualViewport) {
     if (isUserNearBottom) requestAnimationFrame(() => scrollToBottom(false));
   });
 }
+
+// ── Search ────────────────────────────────────────────────────────────────
+
+function getMsgBodyText(msg) {
+  if (typeof msg.body === "string") return msg.body;
+  return JSON.stringify(msg.body);
+}
+
+function updateSearchMatches() {
+  searchMatchIds.clear();
+  searchMatches = [];
+  if (!searchQuery) return;
+  const q = searchQuery.toLowerCase();
+  for (const msg of allMessages) {
+    if (getMsgBodyText(msg).toLowerCase().includes(q)) {
+      searchMatchIds.add(msg.id);
+      searchMatches.push(msg.id);
+    }
+  }
+}
+
+function updateSearchCount() {
+  const n = searchMatches.length;
+  if (!searchQuery) { searchCount.textContent = ""; return; }
+  searchCount.textContent = n === 0 ? "0" : `${searchCurrentIdx + 1}/${n}`;
+}
+
+function scrollToMatch(msgId) {
+  const idx = allMessages.findIndex(m => m.id === msgId);
+  if (idx < 0) return;
+  const clientHeight = scrollContainer.clientHeight;
+  const msgHeight = heightCache.get(idx) ?? ESTIMATED_ROW_HEIGHT;
+  const top = getOffsetForIndex(idx) - (clientHeight - msgHeight) / 2;
+  scrollContainer.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+}
+
+function navigateSearch(dir) {
+  if (searchMatches.length === 0) return;
+  searchCurrentIdx = (searchCurrentIdx + dir + searchMatches.length) % searchMatches.length;
+  updateSearchCount();
+  renderedRange = { start: -1, end: -1 };
+  renderVirtualMessages();
+  scrollToMatch(searchMatches[searchCurrentIdx]);
+}
+
+function openSearch() {
+  searchBar.classList.add("open");
+  searchInput.focus();
+  searchInput.select();
+}
+
+function closeSearch() {
+  searchBar.classList.remove("open");
+  searchQuery = "";
+  searchInput.value = "";
+  searchMatchIds.clear();
+  searchMatches = [];
+  searchCurrentIdx = -1;
+  searchCount.textContent = "";
+  renderedRange = { start: -1, end: -1 };
+  renderVirtualMessages();
+}
+
+searchOpenBtn.onclick = openSearch;
+searchCloseBtn.onclick = closeSearch;
+searchPrevBtn.onclick = () => navigateSearch(-1);
+searchNextBtn.onclick = () => navigateSearch(1);
+
+searchInput.addEventListener("input", () => {
+  searchQuery = searchInput.value;
+  searchCurrentIdx = -1;
+  updateSearchMatches();
+  if (searchMatches.length > 0) {
+    searchCurrentIdx = searchMatches.length - 1;
+    requestAnimationFrame(() => scrollToMatch(searchMatches[searchCurrentIdx]));
+  }
+  updateSearchCount();
+  renderedRange = { start: -1, end: -1 };
+  renderVirtualMessages();
+});
+
+searchInput.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { e.preventDefault(); closeSearch(); }
+  else if (e.key === "Enter") { e.preventDefault(); navigateSearch(e.shiftKey ? -1 : 1); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); navigateSearch(-1); }
+  else if (e.key === "ArrowDown") { e.preventDefault(); navigateSearch(1); }
+});
+
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "f") { e.preventDefault(); openSearch(); }
+  if (e.key === "Escape" && searchBar.classList.contains("open")) closeSearch();
+});
 
 // ── Boot ──────────────────────────────────────────────────────────────────
 
