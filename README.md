@@ -1,6 +1,6 @@
 # gizmo
 
-A self-hosted WebSocket message server with ed25519 identity, tag-based routing, access control, and paginated history.
+A self-hosted WebSocket message server with ed25519 identity, tag-based routing, channels, access control, and paginated history.
 
 ## Running
 
@@ -19,6 +19,14 @@ Data is stored in `~/.local/share/gizmo/` by default. On first start, a random t
 
 HTTP only — use a reverse proxy for TLS.
 
+## Channels
+
+Messages belong to a **channel**. Channels are independent message streams — subscriptions, history, and last-modified queries are all scoped to a single channel.
+
+- **Default channel:** When no channel is specified, messages go to the `"default"` channel.
+- **Naming rules:** `[a-zA-Z0-9_-]`, 1–64 characters.
+- **Storage:** All channels share the global 10 GB history limit. Oldest messages across all channels are evicted when the limit is exceeded.
+
 ## CLI Commands
 
 ### `gizmo keygen`
@@ -34,6 +42,7 @@ Publish a single message and exit.
 | `--url` | `GIZMO_URL` | Server URL (default `ws://localhost:10421`) |
 | `--token` | `GIZMO_TOKEN` | Bearer token |
 | `--secret-key` | `GIZMO_SECRET_KEY` | Hex-encoded ed25519 secret key |
+| `--channel` | | Channel name (default `"default"`) |
 | `--tags` | | Comma-separated tags |
 | `--body` | | Message body as JSON string |
 | `--allow` | | Optional comma-separated allow list |
@@ -48,6 +57,7 @@ Fetch paginated message history over HTTP.
 | `--url` | `GIZMO_URL` | Server URL (default `http://localhost:10421`) |
 | `--token` | `GIZMO_TOKEN` | Bearer token |
 | `--public-key` | `GIZMO_PUBLIC_KEY` | Optional hex pubkey for access control filtering |
+| `--channel` | | Channel name (default `"default"`) |
 | `--after` | | Return messages with id > this value |
 | `--before` | | Return messages with id < this value |
 | `--limit` | | Page size (default 50, max 200) |
@@ -77,6 +87,7 @@ All messages are JSON. Max message size: **16 KB**.
 ```json
 {
   "type": "publish",
+  "channel": "my-channel",
   "tags": ["chat", "general"],
   "body": { "text": "hello world" },
   "signature": "<hex>",
@@ -87,6 +98,7 @@ All messages are JSON. Max message size: **16 KB**.
 
 | Field | Required | Description |
 |---|---|---|
+| `channel` | no | Channel to publish to. Defaults to `"default"` if omitted. |
 | `tags` | yes | At least one tag. Used for subscription filtering. |
 | `body` | yes | Arbitrary JSON value — the message payload. |
 | `signature` | yes | Hex-encoded ed25519 signature of the canonical payload (see below). |
@@ -107,6 +119,7 @@ Server responds:
 {
   "type": "subscribe",
   "sub_id": "my-sub-1",
+  "channel": "my-channel",
   "tags": ["chat"]
 }
 ```
@@ -114,9 +127,10 @@ Server responds:
 | Field | Required | Description |
 |---|---|---|
 | `sub_id` | yes | Client-chosen identifier for this subscription. |
-| `tags` | no | If set, only messages matching at least one tag are delivered. If omitted, all visible messages are delivered. |
+| `channel` | no | Channel to subscribe to. Defaults to `"default"` if omitted. |
+| `tags` | no | If set, only messages matching at least one tag are delivered. If omitted, all visible messages in the channel are delivered. |
 
-You can have multiple concurrent subscriptions with different `sub_id` values and different filters on a single connection.
+You can have multiple concurrent subscriptions with different `sub_id` values, different channels, and different filters on a single connection.
 
 Server responds:
 
@@ -144,6 +158,7 @@ Server responds:
   "message": {
     "id": 42,
     "ed25519": "<sender-pubkey>",
+    "channel": "my-channel",
     "tags": ["chat"],
     "body": { "text": "hello world" },
     "allow": ["..."],
@@ -155,8 +170,9 @@ Server responds:
 ```
 
 A message is delivered to a subscription if:
-1. It matches the subscription's tag filter (or the subscription has no filter).
-2. It passes access control for your pubkey (see below).
+1. It belongs to the subscription's channel.
+2. It matches the subscription's tag filter (or the subscription has no filter).
+3. It passes access control for your pubkey (see below).
 
 The same message may be delivered to multiple subscriptions if their filters overlap.
 
@@ -176,6 +192,7 @@ Paginated message history. Returns messages in ascending `id` order.
 
 | Param | Description |
 |---|---|
+| `channel` | Channel to query. Default `"default"`. |
 | `after` | Return messages with `id > after` (forward pagination). |
 | `before` | Return messages with `id < before` (backward pagination). |
 | `limit` | Page size. Default `50`, max `200`. |
@@ -193,9 +210,9 @@ Paginated message history. Returns messages in ascending `id` order.
 **Pagination pattern — reading all history forward:**
 
 ```
-GET /history?limit=100                    → messages, use last id as cursor
-GET /history?after=<last_id>&limit=100    → next page
-GET /history?after=<last_id>&limit=100    → repeat until has_more=false
+GET /history?channel=my-channel&limit=100                    → messages, use last id as cursor
+GET /history?channel=my-channel&after=<last_id>&limit=100    → next page
+GET /history?channel=my-channel&after=<last_id>&limit=100    → repeat until has_more=false
 ```
 
 Cursor-based pagination on monotonic IDs means you will never skip or duplicate messages, even while new messages are being written.
@@ -206,6 +223,7 @@ Cursor-based pagination on monotonic IDs means you will never skip or duplicate 
 
 | Param | Description |
 |---|---|
+| `channel` | Channel to query. Default `"default"`. |
 | `tags` | Optional comma-separated tag filter. |
 
 **Response:**
@@ -236,23 +254,37 @@ Access control is enforced on: live subscription delivery, history pagination, a
 
 ## Signing
 
-Every published message must be signed. The canonical payload is a JSON string with exactly these keys in this order:
+Every published message must be signed. The canonical payload is the message serialized as compact JSON, **minus the `signature` field**. Optional fields that are omitted are excluded entirely (not set to `null`).
 
+Key order must match the wire format. Fields appear in this order when present: `channel`, `tags`, `body`, `allow`, `disallow`.
+
+**Examples:**
+
+Minimal message (no channel, no allow/disallow):
 ```json
-{"tags":["chat"],"body":{"text":"hello"},"allow":null,"disallow":null}
+{"tags":["chat"],"body":{"text":"hello"}}
 ```
 
-Construction rules:
-- Build a JSON object with keys `tags`, `body`, `allow`, `disallow` in that order.
-- Omitted `allow`/`disallow` must be `null`.
-- Serialize with no extra whitespace (compact JSON).
-- Key order must be exactly: `tags`, `body`, `allow`, `disallow`.
+With channel and allow list:
+```json
+{"channel":"my-channel","tags":["chat"],"body":{"text":"hello"},"allow":["abcd1234..."]}
+```
+
+**Construction rules:**
+- Start with the message object you intend to send.
+- Remove the `signature` field (and `ed25519` if present).
+- Serialize as compact JSON (no extra whitespace).
+- Key order must be preserved (insertion order in JS, `preserve_order` feature in serde_json).
 - Sign the resulting UTF-8 bytes with your ed25519 private key.
 - Hex-encode the 64-byte signature.
 
-**Example (pseudocode):**
+**Pseudocode:**
 
 ```
-payload = json_serialize({"tags": tags, "body": body, "allow": allow_or_null, "disallow": disallow_or_null})
+msg = {tags: tags, body: body}
+if channel: msg.channel = channel  // add before tags
+if allow: msg.allow = allow
+if disallow: msg.disallow = disallow
+payload = json_serialize(msg)
 signature = hex(ed25519_sign(private_key, payload.as_bytes()))
 ```

@@ -33,10 +33,11 @@ const client = new GizmoClient({
 await client.connect();
 const sub = await client.subscribe((msg, subId) => {
   console.log(`[${subId}]`, msg.body);
-}, ["chat"]);
+}, { tags: ["chat"], channel: "my-channel" });
 
 // Publish a message
 const id = await client.publish({
+  channel: "my-channel",
   tags: ["chat"],
   body: { text: "hello world" },
 });
@@ -62,7 +63,7 @@ Holds an ed25519 keypair. Derives the public key from the secret key.
 | `Signer.generate()` | Create a signer with a random keypair |
 | `signer.publicKey` | Hex-encoded public key |
 | `signer.sign(message)` | Sign a UTF-8 string, returns hex signature |
-| `signer.signPayload(tags, body, allow, disallow)` | Build the canonical payload and sign it |
+| `signer.signPayload(msg)` | Remove `signature` from `msg`, JSON-stringify the rest, and sign it |
 
 ### `new GizmoClient(opts: GizmoOptions)`
 
@@ -80,9 +81,9 @@ interface GizmoOptions {
 |---|---|
 | `client.history(query?)` | Fetch paginated history. Returns `{ messages, has_more }` |
 | `client.historyAll(query?)` | Async generator that yields all pages of history |
-| `client.lastModified(tags?)` | Get the most recent message timestamp and id |
+| `client.lastModified(tags?, channel?)` | Get the most recent message timestamp and id |
 
-`HistoryQuery` fields: `after`, `before`, `limit`, `tags`.
+`HistoryQuery` fields: `channel`, `after`, `before`, `limit`, `tags`.
 
 #### WebSocket Methods
 
@@ -90,13 +91,15 @@ interface GizmoOptions {
 |---|---|
 | `client.connect()` | Open WebSocket connection |
 | `client.disconnect()` | Close WebSocket connection |
-| `client.publish({ tags, body, allow?, disallow? })` | Publish a message, returns the assigned id |
-| `client.subscribe(handler, tags?, subId?)` | Subscribe to live messages, returns a `Subscription` |
+| `client.publish({ channel?, tags, body, allow?, disallow? })` | Publish a message, returns the assigned id |
+| `client.subscribe(handler, { tags?, channel?, subId? }?)` | Subscribe to live messages, returns a `Subscription` |
 | `client.onMessage(handler)` | Global handler for all subscription messages |
 | `client.onError(handler)` | Handle server error messages |
 | `client.onClose(handler)` | Handle connection close |
 
 A `Subscription` has an `id` and an `unsubscribe()` method.
+
+All `channel` parameters default to `"default"` when omitted.
 
 ## Dependencies
 
