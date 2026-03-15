@@ -235,31 +235,71 @@ function pauseWorker(taskId: string) {
   return true;
 }
 
-// ── Gizmo polling ─────────────────────────────────────────────────────────
+// ── Gizmo WebSocket watcher ───────────────────────────────────────────────
 
-async function startGizmoWatcher() {
-  const poll = async () => {
-    try {
-      const r = Bun.spawnSync(
-        ["gizmo", "history", "--after", String(lastChatId), "--limit", "50"],
-        { stdout: "pipe", stderr: "pipe" }
-      );
-      if (r.exitCode === 0) {
-        const data = JSON.parse(r.stdout.toString()) as { messages: StoredMessage[] };
-        const newMsgs = data.messages.filter(
-          (m) => !ROUTER_PUBKEY || m.ed25519 !== ROUTER_PUBKEY
-        );
-        if (newMsgs.length > 0) {
-          lastChatId = Math.max(lastChatId, ...newMsgs.map((m) => m.id));
-          pendingChatMessages.push(...newMsgs);
-          notifyWaiters();
+const GIZMO_URL = process.env.GIZMO_URL ?? "https://gizmo.voltrevo.com";
+const GIZMO_TOKEN = process.env.GIZMO_TOKEN ?? "";
+const GIZMO_CHANNEL = process.env.GIZMO_CHANNEL ?? "default";
+
+function ingestMessages(msgs: StoredMessage[]) {
+  const newMsgs = msgs.filter((m) => !ROUTER_PUBKEY || m.ed25519 !== ROUTER_PUBKEY);
+  if (newMsgs.length === 0) return;
+  lastChatId = Math.max(lastChatId, ...newMsgs.map((m) => m.id));
+  pendingChatMessages.push(...newMsgs);
+  notifyWaiters();
+}
+
+async function catchUpHistory() {
+  try {
+    const wsBase = GIZMO_URL.replace(/^http/, "ws");
+    const url = new URL(`${GIZMO_URL}/history`);
+    url.searchParams.set("after", String(lastChatId));
+    url.searchParams.set("limit", "200");
+    url.searchParams.set("channel", GIZMO_CHANNEL);
+    const resp = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${GIZMO_TOKEN}`, "X-Ed25519-Pubkey": ROUTER_PUBKEY || "0".repeat(64) },
+    });
+    if (resp.ok) {
+      const data = await resp.json() as { messages: StoredMessage[] };
+      ingestMessages(data.messages);
+    }
+  } catch { /* ignore transient errors */ }
+}
+
+function startGizmoWatcher() {
+  const wsBase = GIZMO_URL.replace(/^http/, "ws");
+  const wsUrl = `${wsBase}/ws?token=${encodeURIComponent(GIZMO_TOKEN)}&pubkey=${encodeURIComponent(ROUTER_PUBKEY || "0".repeat(64))}`;
+
+  const connect = () => {
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = async () => {
+      process.stderr.write("coordinator: gizmo WebSocket connected\n");
+      // Catch up on any messages missed before this connection was established.
+      await catchUpHistory();
+      ws.send(JSON.stringify({ type: "subscribe", sub_id: "coordinator", channel: GIZMO_CHANNEL }));
+    };
+
+    ws.onmessage = (ev) => {
+      try {
+        const data = JSON.parse(ev.data as string);
+        if (data.type === "message" && data.sub_id === "coordinator") {
+          ingestMessages([data.message as StoredMessage]);
         }
-      }
-    } catch { /* ignore transient errors */ }
-    setTimeout(poll, 1000);
+      } catch { /* ignore parse errors */ }
+    };
+
+    ws.onclose = () => {
+      process.stderr.write("coordinator: gizmo WebSocket closed, reconnecting in 2s\n");
+      setTimeout(connect, 2000);
+    };
+
+    ws.onerror = () => {
+      process.stderr.write("coordinator: gizmo WebSocket error\n");
+    };
   };
 
-  await poll();
+  connect();
 }
 
 // ── Wait/notify ───────────────────────────────────────────────────────────
@@ -428,7 +468,7 @@ async function main() {
   if (!command || command === "daemon") {
     if (existsSync(SOCKET_PATH)) { try { rmSync(SOCKET_PATH); } catch { /* */ } }
     loadExistingClones();
-    await startGizmoWatcher();
+    startGizmoWatcher();
     const server = createServer(handleConnection);
     server.listen(SOCKET_PATH, () => {
       process.stderr.write(`coordinator: ready (socket=${SOCKET_PATH} max_workers=${MAX_WORKERS})\n`);

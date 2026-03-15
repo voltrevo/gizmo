@@ -1,5 +1,22 @@
 # gizmo-claude-knowledge
 
+## Upgrading from the single-agent version
+
+**Breaking change:** the persistent volume was renamed from `/knowledge` to `/brain`, and the format changed from a flat file directory to a git-based repository.
+
+If you have an existing container with data in `bots/claude-knowledge/knowledge/`, it will not be migrated automatically. To preserve it:
+
+```sh
+# Copy old flat files into the new brain repo structure before first run
+mkdir -p brain/router/Wiki
+cp -r bots/claude-knowledge/knowledge/people  brain/router/Wiki/people
+cp -r bots/claude-knowledge/knowledge/topics  brain/router/Wiki/topics
+cp    bots/claude-knowledge/knowledge/log.md  brain/router/Wiki/log.md 2>/dev/null || true
+# Then let run.sh init the bare repo normally on first start
+```
+
+Or start fresh — the agent will rebuild its knowledge base from chat history.
+
 A Dockerized multi-agent Claude system that participates in [gizmo](https://github.com/voltrevo/gizmo) group chat and maintains a persistent shared brain (knowledge base).
 
 ## Architecture

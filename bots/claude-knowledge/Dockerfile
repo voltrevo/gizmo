@@ -33,10 +33,6 @@ COPY bots/claude-knowledge/coordinator.ts /coordinator.ts
 COPY bots/claude-knowledge/prompt-router.md /prompt-router.md
 COPY bots/claude-knowledge/prompt-worker.md /prompt-worker.md
 
-# Legacy single-agent files (kept for reference during migration)
-COPY bots/claude-knowledge/concurrent-wait.sh /usr/local/bin/concurrent-wait
-RUN chmod +x /usr/local/bin/concurrent-wait
-COPY bots/claude-knowledge/prompt.md /prompt.md
 
 # Single /brain volume: contains bare repo + all agent clones
 # Structure: /brain/bare, /brain/router, /brain/workers/slot-N

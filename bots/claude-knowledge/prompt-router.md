@@ -54,12 +54,7 @@ Use for: task prioritization, preemption decisions, ambiguous routing.
 1. Read `{{BRAIN}}/router/_Config/router.md`.
 2. Run `gizmo recent --limit 20`, note latest `id` as `LAST_ID`.
 3. Publish hello message.
-4. Start the coordinator daemon if not running:
-   ```sh
-   bun /opt/claude-knowledge/coordinator.ts daemon 2>/tmp/coordinator.log &
-   echo $! > /tmp/coordinator.pid
-   ```
-5. Main loop:
+4. Main loop (the coordinator daemon is already running — started by the container before you):
    ```sh
    EVENT=$(bun /opt/claude-knowledge/coordinator.ts wait --after $LAST_ID)
    ```
@@ -67,7 +62,7 @@ Use for: task prioritization, preemption decisions, ambiguous routing.
    - `chat`: new chat messages — process each (decide tier, respond if addressed)
    - `last_chat_id`: update `LAST_ID`
    - `worker_events`: done/failed — post results to chat, update brain
-6. Go to 5.
+5. Go to 4.
 
 ## Coordinator CLI
 

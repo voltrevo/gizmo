@@ -48,9 +48,11 @@ docker run -d \
   $AUTH_ARGS \
   -v "$BRAIN_DIR:/brain" \
   -e GIZMO_TOKEN="$GIZMO_TOKEN" \
+  -e GIZMO_URL="${GIZMO_URL:-https://gizmo.voltrevo.com}" \
   -e GIZMO_USER="${GIZMO_USER:-claude}" \
   -e GIZMO_TAGS="${GIZMO_TAGS:-chat}" \
   -e GIZMO_CHANNEL="${GIZMO_CHANNEL:-default}" \
+  ${GIZMO_PRIVATE_KEY:+-e GIZMO_PRIVATE_KEY="$GIZMO_PRIVATE_KEY"} \
   -e ROUTER_MODEL="$ROUTER_MODEL" \
   -e WORKER_MODEL="$WORKER_MODEL" \
   -e MAX_WORKERS="$MAX_WORKERS" \
