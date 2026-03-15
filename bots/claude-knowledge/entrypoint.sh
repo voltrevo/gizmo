@@ -29,34 +29,63 @@ fi
 chmod 600 /root/.claude/.credentials.json 2>/dev/null || true
 chmod -R 700 /root/.local/share/gizmo 2>/dev/null || true
 
-# Knowledge dir: init as bare repo + create agent worktree
-# If KNOWLEDGE_BARE is set, use it as the bare repo path.
+# --- Knowledge repo setup ---
+#
+# KNOWLEDGE_BARE: bare git repo (the "remote"); mounted as a volume.
+# /knowledge:     router agent's clone of the bare repo.
+# /knowledge-workers/slot-N: each worker's permanent clone.
+#
 KNOWLEDGE_BARE="${KNOWLEDGE_BARE:-/knowledge-bare}"
-KNOWLEDGE_WORKTREE="/knowledge"
+ROUTER_CLONE="/knowledge"
+MAX_WORKERS="${MAX_WORKERS:-3}"
 
-if [ ! -d "$KNOWLEDGE_BARE" ]; then
+# Init bare repo if it doesn't exist
+if [ ! -d "$KNOWLEDGE_BARE/HEAD" ]; then
   git init --bare "$KNOWLEDGE_BARE"
+  # Seed with an empty commit so clones work
+  TMPINIT=$(mktemp -d)
+  git -C "$TMPINIT" init
+  git -C "$TMPINIT" config user.email "wren@gizmo"
+  git -C "$TMPINIT" config user.name "Wren"
+  git -C "$TMPINIT" commit --allow-empty -m "init"
+  git -C "$TMPINIT" remote add origin "$KNOWLEDGE_BARE"
+  git -C "$TMPINIT" push origin HEAD:main
+  rm -rf "$TMPINIT"
   echo "Initialized bare knowledge repo at $KNOWLEDGE_BARE"
 fi
 
-if [ ! -d "$KNOWLEDGE_WORKTREE/.git" ]; then
-  # First-time: add the worktree
-  git -C "$KNOWLEDGE_BARE" worktree add "$KNOWLEDGE_WORKTREE" --orphan -b main 2>/dev/null || \
-  git -C "$KNOWLEDGE_BARE" worktree add "$KNOWLEDGE_WORKTREE" main
+# Router clone
+if [ ! -d "$ROUTER_CLONE/.git" ]; then
+  git clone "$KNOWLEDGE_BARE" "$ROUTER_CLONE"
+  git -C "$ROUTER_CLONE" config user.email "wren-router@gizmo"
+  git -C "$ROUTER_CLONE" config user.name "Wren Router"
 fi
 
-# Ensure knowledge subdirs exist
-mkdir -p "$KNOWLEDGE_WORKTREE/Wiki/people" \
-         "$KNOWLEDGE_WORKTREE/Wiki/topics" \
-         "$KNOWLEDGE_WORKTREE/_Config" \
-         "$KNOWLEDGE_WORKTREE/_Temporal/Logs"
+# Ensure router knowledge subdirs exist and commit if new
+mkdir -p "$ROUTER_CLONE/Wiki/people" \
+         "$ROUTER_CLONE/Wiki/topics" \
+         "$ROUTER_CLONE/_Config" \
+         "$ROUTER_CLONE/_Temporal/Logs"
 
-chown -R agent:agent "$KNOWLEDGE_BARE" "$KNOWLEDGE_WORKTREE"
+# Worker clones (permanent, one per slot)
+i=1
+while [ "$i" -le "$MAX_WORKERS" ]; do
+  WORKER_CLONE="/knowledge-workers/slot-$i"
+  if [ ! -d "$WORKER_CLONE/.git" ]; then
+    mkdir -p "$(dirname "$WORKER_CLONE")"
+    git clone "$KNOWLEDGE_BARE" "$WORKER_CLONE"
+    git -C "$WORKER_CLONE" config user.email "wren-worker-$i@gizmo"
+    git -C "$WORKER_CLONE" config user.name "Wren Worker $i"
+    echo "Created worker clone: $WORKER_CLONE"
+  fi
+  i=$((i + 1))
+done
 
-# Copy coordinator script to a stable location
+chown -R agent:agent "$KNOWLEDGE_BARE" "$ROUTER_CLONE" /knowledge-workers 2>/dev/null || true
+
+# --- Copy coordinator script and prompts ---
 mkdir -p /opt/claude-knowledge
 cp /coordinator.ts /opt/claude-knowledge/coordinator.ts
-cp /prompt-router.md /opt/claude-knowledge/prompt-router.md
 cp /prompt-worker.md /opt/claude-knowledge/prompt-worker.md
 
 # Build router prompt from template
@@ -72,7 +101,6 @@ chown -R agent:agent /home/agent
 # Capture config env vars (non-secret)
 ROUTER_MODEL="${ROUTER_MODEL:-claude-haiku-4-5-20251001}"
 WORKER_MODEL="${WORKER_MODEL:-claude-sonnet-4-6}"
-MAX_WORKERS="${MAX_WORKERS:-3}"
 MAX_BUDGET="${MAX_BUDGET:-}"
 
 # Publish startup message before dropping privileges
@@ -86,6 +114,7 @@ echo "Starting router agent (model: $ROUTER_MODEL, max_workers: $MAX_WORKERS)...
 exec su -s /bin/sh agent -c "
   export MAX_WORKERS='$MAX_WORKERS'
   export WORKER_MODEL='$WORKER_MODEL'
+  export KNOWLEDGE_BARE='$KNOWLEDGE_BARE'
   claude -p \"\$(cat /tmp/prompt-router.md)\" \
     --allowedTools 'Bash,Read,Write,Glob,Grep,WebFetch,WebSearch' \
     --model '$ROUTER_MODEL' \

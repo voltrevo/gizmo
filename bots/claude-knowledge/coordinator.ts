@@ -21,7 +21,8 @@
  *     { "type": "failed",   "id": "uuid", "slot": N, "error": "..." }
  *     { "type": "status",   "slots": [...], "queue": [...] }
  *
- * Worker slots: /tmp/wren-slot-{N}/ — each has pid, done, result.txt
+ * Worker slots: /knowledge-workers/slot-{N}/ — permanent clone of knowledge bare repo.
+ * Each worker also gets a /tmp/wren-task-{N}/ for task-specific scratch space (cleaned per task).
  */
 
 import { spawn } from "child_process";
@@ -30,7 +31,8 @@ import { randomUUID } from "crypto";
 import * as readline from "readline";
 
 const MAX_WORKERS = Number(process.env.MAX_WORKERS ?? 3);
-const WORKER_MODEL = process.env.WORKER_MODEL ?? "claude-sonnet-4-5";
+const WORKER_MODEL = process.env.WORKER_MODEL ?? "claude-sonnet-4-6";
+const KNOWLEDGE_WORKERS_BASE = process.env.KNOWLEDGE_WORKERS_BASE ?? "/knowledge-workers";
 const WORKER_MAX_TURNS = Number(process.env.WORKER_MAX_TURNS ?? 30);
 
 interface Task {
@@ -44,7 +46,8 @@ interface Slot {
   slotId: number;
   task: Task;
   proc: ReturnType<typeof spawn>;
-  dir: string;
+  dir: string;          // per-task scratch dir
+  knowledgeDir: string;  // permanent knowledge clone
   startedAt: number;
 }
 
@@ -66,15 +69,19 @@ function pickNextTask(): Task | undefined {
 }
 
 function startWorker(slot: number, task: Task) {
-  const dir = `/tmp/wren-slot-${slot}`;
-  rmSync(dir, { recursive: true, force: true });
-  mkdirSync(dir, { recursive: true });
+  const knowledgeDir = `${KNOWLEDGE_WORKERS_BASE}/slot-${slot}`;
+  const taskDir = `/tmp/wren-task-${slot}`;
+  rmSync(taskDir, { recursive: true, force: true });
+  mkdirSync(taskDir, { recursive: true });
+
+  const resultPath = `${taskDir}/result.txt`;
 
   const workerPrompt = `${task.prompt}
 
 ---
 Worker slot: ${slot}. Task ID: ${task.id}.
-When done, write your result to /tmp/wren-slot-${slot}/result.txt and exit.
+Your knowledge clone: ${knowledgeDir} (pull before reading, push after updating)
+Write your result to: ${resultPath}
 `;
 
   const proc = spawn(
@@ -92,13 +99,14 @@ When done, write your result to /tmp/wren-slot-${slot}/result.txt and exit.
     { stdio: ["ignore", "pipe", "pipe"] }
   );
 
-  const slotEntry: Slot = { slotId: slot, task, proc, dir, startedAt: Date.now() };
+  const slotEntry: Slot = { slotId: slot, task, proc, dir: taskDir, knowledgeDir, startedAt: Date.now() };
   slots.set(slot, slotEntry);
 
   emit({ type: "started", id: task.id, slot });
 
   proc.on("close", (code) => {
-    const resultPath = `${dir}/result.txt`;
+    const { dir: taskDir2 } = slotEntry; // for clarity
+    const resultPath = `${taskDir2}/result.txt`;
     const result = existsSync(resultPath)
       ? readFileSync(resultPath, "utf-8").trim()
       : "(no result.txt written)";
@@ -110,7 +118,7 @@ When done, write your result to /tmp/wren-slot-${slot}/result.txt and exit.
     }
 
     slots.delete(slot);
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(taskDir2, { recursive: true, force: true });
     drainQueue();
   });
 

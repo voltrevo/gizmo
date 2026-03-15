@@ -36,7 +36,8 @@ fi
 
 KNOWLEDGE_DIR="${KNOWLEDGE_DIR:-$SCRIPT_DIR/knowledge}"
 KNOWLEDGE_BARE_DIR="${KNOWLEDGE_BARE_DIR:-$SCRIPT_DIR/knowledge-bare}"
-mkdir -p "$KNOWLEDGE_DIR" "$KNOWLEDGE_BARE_DIR"
+KNOWLEDGE_WORKERS_DIR="${KNOWLEDGE_WORKERS_DIR:-$SCRIPT_DIR/knowledge-workers}"
+mkdir -p "$KNOWLEDGE_DIR" "$KNOWLEDGE_BARE_DIR" "$KNOWLEDGE_WORKERS_DIR"
 
 ROUTER_MODEL="${ROUTER_MODEL:-claude-haiku-4-5-20251001}"
 WORKER_MODEL="${WORKER_MODEL:-claude-sonnet-4-6}"
@@ -48,6 +49,7 @@ docker run -d \
   $AUTH_ARGS \
   -v "$KNOWLEDGE_DIR:/knowledge" \
   -v "$KNOWLEDGE_BARE_DIR:/knowledge-bare" \
+  -v "$KNOWLEDGE_WORKERS_DIR:/knowledge-workers" \
   -e GIZMO_TOKEN="$GIZMO_TOKEN" \
   -e GIZMO_USER="${GIZMO_USER:-claude}" \
   -e GIZMO_TAGS="${GIZMO_TAGS:-chat}" \
