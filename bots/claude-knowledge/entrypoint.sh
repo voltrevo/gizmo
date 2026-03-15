@@ -106,6 +106,8 @@ gizmo publish --user "${GIZMO_USER:-claude}" --tags "${GIZMO_TAGS:-chat}" --body
 
 unset ANTHROPIC_API_KEY GIZMO_TOKEN GIZMO_PRIVATE_KEY
 
+echo "Starting coordinator daemon..."
+bun /opt/claude-knowledge/coordinator.ts daemon 2>/var/log/coordinator.log &
 echo "Starting router agent (model: $ROUTER_MODEL, max_workers: $MAX_WORKERS)..."
 exec su -s /bin/sh agent -c "
   export MAX_WORKERS='$MAX_WORKERS'

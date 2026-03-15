@@ -1,77 +1,162 @@
 #!/usr/bin/env bun
 /**
- * Wren coordinator — manages worker slots and routes tasks from the router agent.
+ * Wren Coordinator — daemon + CLI for multi-agent task management.
  *
- * Architecture:
- *   - Router (haiku) writes tasks to the coordinator via IPC (stdin JSON-lines)
- *   - Coordinator spawns up to MAX_WORKERS concurrent claude worker processes
- *   - Workers write results to their slot dir; coordinator signals router on completion
- *   - Router can send priority-override or cancel commands via IPC
+ * Usage:
+ *   bun coordinator.ts daemon       — start the daemon (listens on SOCKET_PATH)
+ *   bun coordinator.ts enqueue      — add a task (--prompt, --priority, [--id])
+ *   bun coordinator.ts wait         — block until next batch event (--after <msg-id>)
+ *   bun coordinator.ts status       — print current state as JSON
+ *   bun coordinator.ts cancel <id>  — cancel a queued or running task
+ *   bun coordinator.ts pause <id>   — pause a running task (preserves clone)
+ *   bun coordinator.ts reprioritize <id> --priority <n>
+ *   bun coordinator.ts stop         — gracefully shut down the daemon
  *
- * IPC protocol (newline-delimited JSON on stdin):
- *   Router → Coordinator:
- *     { "type": "enqueue", "id": "uuid", "prompt": "...", "priority": 1-10 }
- *     { "type": "cancel", "id": "uuid" }
- *     { "type": "reprioritize", "id": "uuid", "priority": N }
- *     { "type": "status" }     — coordinator prints current slot state to stdout
+ * Clone states:
+ *   active  — has a running worker process
+ *   paused  — worker killed, clone preserved (partial work intact, task re-queued)
+ *   free    — available for new task
  *
- *   Coordinator → Router (stdout JSON-lines):
- *     { "type": "started",  "id": "uuid", "slot": N }
- *     { "type": "done",     "id": "uuid", "slot": N, "result": "..." }
- *     { "type": "failed",   "id": "uuid", "slot": N, "error": "..." }
- *     { "type": "status",   "slots": [...], "queue": [...] }
- *
- * Worker slots: /brain/workers/slot-{N}/ — permanent clone of brain bare repo.
- * Each worker also gets a /tmp/wren-task-{N}/ for task-specific scratch space (cleaned per task).
+ * wait event format (returned as JSON line):
+ *   { type: "batch", chat: StoredMessage[], last_chat_id: number, worker_events: WorkerEvent[] }
  */
 
-import { spawn } from "child_process";
-import { mkdirSync, existsSync, readFileSync, rmSync } from "fs";
+import { createServer, createConnection, type Socket } from "net";
+import { spawn, type ChildProcess } from "child_process";
+import {
+  mkdirSync,
+  existsSync,
+  readFileSync,
+  rmSync,
+  readdirSync,
+} from "fs";
 import { randomUUID } from "crypto";
-import * as readline from "readline";
 
+// ── Config ────────────────────────────────────────────────────────────────
+
+const SOCKET_PATH = process.env.COORDINATOR_SOCKET ?? "/tmp/coordinator.sock";
 const MAX_WORKERS = Number(process.env.MAX_WORKERS ?? 3);
 const WORKER_MODEL = process.env.WORKER_MODEL ?? "claude-sonnet-4-6";
+const WORKER_MAX_TURNS = Number(process.env.WORKER_MAX_TURNS ?? 30);
 const BRAIN = process.env.BRAIN ?? "/brain";
 const WORKERS_BASE = `${BRAIN}/workers`;
-const WORKER_MAX_TURNS = Number(process.env.WORKER_MAX_TURNS ?? 30);
+const GIZMO_URL = process.env.GIZMO_URL ?? "";
+const GIZMO_TOKEN = process.env.GIZMO_TOKEN ?? "";
+// Router's pubkey — filter out self-messages from gizmo subscription
+const ROUTER_PUBKEY = process.env.ROUTER_PUBKEY ?? "";
+
+// ── Types ─────────────────────────────────────────────────────────────────
 
 interface Task {
   id: string;
   prompt: string;
-  priority: number; // 1 (low) to 10 (high)
+  priority: number;
   enqueuedAt: number;
+  cloneDir?: string; // assigned clone (persists through pause/resume)
 }
 
-interface Slot {
-  slotId: number;
-  task: Task;
-  proc: ReturnType<typeof spawn>;
-  dir: string;          // per-task scratch dir
-  knowledgeDir: string;  // permanent knowledge clone
-  startedAt: number;
+type CloneState = "free" | "active" | "paused";
+
+interface Clone {
+  dir: string;
+  state: CloneState;
+  taskId?: string;
+  lastUsedAt: number;
 }
+
+interface ActiveWorker {
+  task: Task;
+  clone: Clone;
+  proc: ChildProcess;
+  startedAt: number;
+  taskDir: string;
+}
+
+interface WorkerEvent {
+  type: "done" | "failed";
+  id: string;
+  cloneDir: string;
+  result?: string;
+  error?: string;
+}
+
+interface StoredMessage {
+  id: number;
+  ed25519: string;
+  channel: string;
+  tags: string[];
+  body: unknown;
+  created_at: string;
+}
+
+// ── State ─────────────────────────────────────────────────────────────────
 
 const queue: Task[] = [];
-const slots = new Map<number, Slot>();
+const activeWorkers = new Map<string, ActiveWorker>();
+const clones: Clone[] = [];
+let lastChatId = 0;
+const pendingChatMessages: StoredMessage[] = [];
+const pendingWorkerEvents: WorkerEvent[] = [];
+const waiters: Array<() => void> = [];
 
-function freeSlots(): number[] {
-  const used = new Set(slots.keys());
-  return Array.from({ length: MAX_WORKERS }, (_, i) => i + 1).filter(
-    (n) => !used.has(n)
-  );
+// ── Clone management ──────────────────────────────────────────────────────
+
+function loadExistingClones() {
+  if (!existsSync(WORKERS_BASE)) return;
+  for (const name of readdirSync(WORKERS_BASE)) {
+    const dir = `${WORKERS_BASE}/${name}`;
+    if (existsSync(`${dir}/.git`)) {
+      clones.push({ dir, state: "free", lastUsedAt: 0 });
+    }
+  }
 }
 
-function pickNextTask(): Task | undefined {
-  if (queue.length === 0) return undefined;
-  // Sort by priority desc, then by enqueue time asc
-  queue.sort((a, b) => b.priority - a.priority || a.enqueuedAt - b.enqueuedAt);
-  return queue.shift();
+function createClone(name: string): Clone {
+  const dir = `${WORKERS_BASE}/${name}`;
+  mkdirSync(dir, { recursive: true });
+  const barePath = `${BRAIN}/bare`;
+  const r = Bun.spawnSync(["git", "clone", barePath, dir]);
+  if (r.exitCode !== 0) throw new Error(`git clone failed: ${r.stderr}`);
+  Bun.spawnSync(["git", "-C", dir, "config", "user.email", `wren-${name}@gizmo`]);
+  Bun.spawnSync(["git", "-C", dir, "config", "user.name", `Wren ${name}`]);
+  const clone: Clone = { dir, state: "free", lastUsedAt: 0 };
+  clones.push(clone);
+  return clone;
 }
 
-function startWorker(slot: number, task: Task) {
-  const knowledgeDir = `${WORKERS_BASE}/slot-${slot}`;
-  const taskDir = `/tmp/wren-task-${slot}`;
+function getFreeClone(): Clone {
+  const free = clones.find((c) => c.state === "free");
+  if (free) return free;
+  return createClone(`slot-${clones.length + 1}`);
+}
+
+function activeCount(): number {
+  return clones.filter((c) => c.state === "active").length;
+}
+
+function pruneIdleClones() {
+  if (activeCount() > 0 || queue.length > 0) return;
+  // Sort: keep most recently used; drop excess beyond MAX_WORKERS
+  const candidates = clones
+    .filter((c) => c.state !== "active")
+    .sort((a, b) => b.lastUsedAt - a.lastUsedAt)
+    .slice(MAX_WORKERS);
+  for (const c of candidates) {
+    rmSync(c.dir, { recursive: true, force: true });
+    const idx = clones.indexOf(c);
+    if (idx >= 0) clones.splice(idx, 1);
+  }
+}
+
+// ── Worker management ─────────────────────────────────────────────────────
+
+function startWorker(task: Task, clone: Clone) {
+  clone.state = "active";
+  clone.taskId = task.id;
+  clone.lastUsedAt = Date.now();
+  task.cloneDir = clone.dir;
+
+  const taskDir = `/tmp/wren-task-${task.id}`;
   rmSync(taskDir, { recursive: true, force: true });
   mkdirSync(taskDir, { recursive: true });
 
@@ -80,82 +165,152 @@ function startWorker(slot: number, task: Task) {
   const workerPrompt = `${task.prompt}
 
 ---
-Worker slot: ${slot}. Task ID: ${task.id}.
-Your brain clone: ${knowledgeDir}
-  - Sync before reading: cd ${knowledgeDir} && git pull
-  - Sync after committing: cd ${knowledgeDir} && git push origin HEAD
+Task ID: ${task.id}
+Brain clone: ${clone.dir}
+  - Sync before reading: cd ${clone.dir} && git pull
+  - Sync after knowledge updates: cd ${clone.dir} && git add -A && git commit -m "<desc>" && git push origin HEAD
   - On push conflict: git pull && git push
-Write your result to: ${resultPath}
+Write result to: ${resultPath}
+Commit knowledge incrementally so paused work is preserved.
 `;
 
   const proc = spawn(
     "claude",
     [
-      "-p",
-      workerPrompt,
-      "--allowedTools",
-      "Bash,Read,Write,Glob,Grep,WebFetch,WebSearch",
-      "--max-turns",
-      String(WORKER_MAX_TURNS),
-      "--model",
-      WORKER_MODEL,
+      "-p", workerPrompt,
+      "--allowedTools", "Bash,Read,Write,Glob,Grep,WebFetch,WebSearch",
+      "--max-turns", String(WORKER_MAX_TURNS),
+      "--model", WORKER_MODEL,
     ],
     { stdio: ["ignore", "pipe", "pipe"] }
   );
 
-  const slotEntry: Slot = { slotId: slot, task, proc, dir: taskDir, knowledgeDir, startedAt: Date.now() };
-  slots.set(slot, slotEntry);
-
-  emit({ type: "started", id: task.id, slot });
+  const worker: ActiveWorker = { task, clone, proc, startedAt: Date.now(), taskDir };
+  activeWorkers.set(task.id, worker);
 
   proc.on("close", (code) => {
-    const { dir: taskDir2 } = slotEntry; // for clarity
-    const resultPath = `${taskDir2}/result.txt`;
+    activeWorkers.delete(task.id);
+    clone.state = "free";
+    clone.taskId = undefined;
+
     const result = existsSync(resultPath)
       ? readFileSync(resultPath, "utf-8").trim()
-      : "(no result.txt written)";
+      : "(no result written)";
 
-    if (code === 0) {
-      emit({ type: "done", id: task.id, slot, result });
-    } else {
-      emit({ type: "failed", id: task.id, slot, error: `exit code ${code}`, result });
-    }
+    pendingWorkerEvents.push(
+      code === 0
+        ? { type: "done", id: task.id, cloneDir: clone.dir, result }
+        : { type: "failed", id: task.id, cloneDir: clone.dir, result, error: `exit ${code}` }
+    );
 
-    slots.delete(slot);
-    rmSync(taskDir2, { recursive: true, force: true });
+    rmSync(taskDir, { recursive: true, force: true });
+    notifyWaiters();
     drainQueue();
+    pruneIdleClones();
   });
 
-  // Forward worker stderr to our stderr for debugging
   proc.stderr?.on("data", (d) =>
-    process.stderr.write(`[slot-${slot}] ${d}`)
+    process.stderr.write(`[worker:${task.id.slice(0, 8)}] ${d}`)
   );
 }
 
 function drainQueue() {
-  for (const slot of freeSlots()) {
-    const task = pickNextTask();
-    if (!task) break;
-    startWorker(slot, task);
+  while (activeCount() < MAX_WORKERS && queue.length > 0) {
+    queue.sort((a, b) => b.priority - a.priority || a.enqueuedAt - b.enqueuedAt);
+    const task = queue.shift()!;
+    // Resume from existing clone if paused, otherwise get a free one
+    const resumeClone = task.cloneDir
+      ? clones.find((c) => c.dir === task.cloneDir && c.state === "paused")
+      : undefined;
+    startWorker(task, resumeClone ?? getFreeClone());
   }
 }
 
-function emit(obj: unknown) {
-  process.stdout.write(JSON.stringify(obj) + "\n");
+function pauseWorker(taskId: string) {
+  const worker = activeWorkers.get(taskId);
+  if (!worker) return false;
+  worker.proc.kill("SIGTERM");
+  worker.clone.state = "paused";
+  worker.clone.taskId = taskId;
+  activeWorkers.delete(taskId);
+  queue.push(worker.task); // re-queue so it can be resumed
+  return true;
 }
 
-// IPC: read commands from router via stdin
-const rl = readline.createInterface({ input: process.stdin });
+// ── Gizmo polling ─────────────────────────────────────────────────────────
 
-rl.on("line", (line) => {
-  let msg: { type: string; [k: string]: unknown };
-  try {
-    msg = JSON.parse(line);
-  } catch {
-    process.stderr.write(`coordinator: invalid JSON from router: ${line}\n`);
+async function startGizmoWatcher() {
+  if (!GIZMO_URL || !GIZMO_TOKEN) {
+    process.stderr.write("coordinator: no GIZMO_URL/GIZMO_TOKEN, chat watching disabled\n");
     return;
   }
 
+  const poll = async () => {
+    try {
+      const url = new URL("/history", GIZMO_URL);
+      url.searchParams.set("after", String(lastChatId));
+      url.searchParams.set("limit", "50");
+      const resp = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${GIZMO_TOKEN}` },
+      });
+      if (resp.ok) {
+        const data = (await resp.json()) as { messages: StoredMessage[] };
+        const newMsgs = data.messages.filter(
+          (m) => !ROUTER_PUBKEY || m.ed25519 !== ROUTER_PUBKEY
+        );
+        if (newMsgs.length > 0) {
+          lastChatId = Math.max(lastChatId, ...newMsgs.map((m) => m.id));
+          pendingChatMessages.push(...newMsgs);
+          notifyWaiters();
+        }
+      }
+    } catch { /* ignore transient errors */ }
+    setTimeout(poll, 1000);
+  };
+
+  await poll();
+}
+
+// ── Wait/notify ───────────────────────────────────────────────────────────
+
+function hasPending(): boolean {
+  return pendingChatMessages.length > 0 || pendingWorkerEvents.length > 0;
+}
+
+function notifyWaiters() {
+  if (!hasPending()) return;
+  for (const resolve of waiters.splice(0)) resolve();
+}
+
+function buildBatch(): object {
+  return {
+    type: "batch",
+    chat: pendingChatMessages.splice(0),
+    last_chat_id: lastChatId,
+    worker_events: pendingWorkerEvents.splice(0),
+  };
+}
+
+// ── IPC server ────────────────────────────────────────────────────────────
+
+function handleConnection(socket: Socket) {
+  let buf = "";
+  socket.on("data", (d) => {
+    buf += d.toString();
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        handleMessage(socket, JSON.parse(line));
+      } catch {
+        socket.write(JSON.stringify({ error: "invalid json" }) + "\n");
+      }
+    }
+  });
+}
+
+function handleMessage(socket: Socket, msg: Record<string, unknown>) {
   switch (msg.type) {
     case "enqueue": {
       const task: Task = {
@@ -164,75 +319,155 @@ rl.on("line", (line) => {
         priority: Number(msg.priority ?? 5),
         enqueuedAt: Date.now(),
       };
-      const free = freeSlots();
-      if (free.length > 0) {
-        startWorker(free[0]!, task);
+      if (activeCount() < MAX_WORKERS) {
+        startWorker(task, getFreeClone());
       } else {
         queue.push(task);
       }
+      socket.write(JSON.stringify({ type: "enqueued", id: task.id }) + "\n");
+      socket.end();
       break;
     }
-
     case "cancel": {
       const id = msg.id as string;
-      // Remove from queue if not started
-      const idx = queue.findIndex((t) => t.id === id);
-      if (idx >= 0) {
-        queue.splice(idx, 1);
-        emit({ type: "cancelled", id });
+      const qi = queue.findIndex((t) => t.id === id);
+      if (qi >= 0) {
+        queue.splice(qi, 1);
+        socket.write(JSON.stringify({ type: "cancelled", id }) + "\n");
+      } else if (activeWorkers.has(id)) {
+        const w = activeWorkers.get(id)!;
+        w.proc.kill("SIGTERM");
+        activeWorkers.delete(id);
+        w.clone.state = "free";
+        drainQueue();
+        socket.write(JSON.stringify({ type: "cancelled", id }) + "\n");
       } else {
-        // Kill running slot
-        for (const [slot, s] of slots) {
-          if (s.task.id === id) {
-            s.proc.kill("SIGTERM");
-            emit({ type: "cancelled", id, slot });
-            break;
-          }
-        }
+        socket.write(JSON.stringify({ error: "not found", id }) + "\n");
       }
+      socket.end();
       break;
     }
-
+    case "pause": {
+      const id = msg.id as string;
+      const ok = pauseWorker(id);
+      socket.write(JSON.stringify(ok ? { type: "paused", id } : { error: "not running", id }) + "\n");
+      socket.end();
+      break;
+    }
     case "reprioritize": {
       const id = msg.id as string;
-      const newPriority = Number(msg.priority);
-      const task = queue.find((t) => t.id === id);
-      if (task) {
-        task.priority = newPriority;
-        emit({ type: "reprioritized", id, priority: newPriority });
+      const t = queue.find((x) => x.id === id);
+      if (t) {
+        t.priority = Number(msg.priority);
+        socket.write(JSON.stringify({ type: "reprioritized", id, priority: t.priority }) + "\n");
+      } else {
+        socket.write(JSON.stringify({ error: "not in queue", id }) + "\n");
+      }
+      socket.end();
+      break;
+    }
+    case "status": {
+      socket.write(
+        JSON.stringify({
+          type: "status",
+          active: Array.from(activeWorkers.values()).map((w) => ({
+            id: w.task.id,
+            priority: w.task.priority,
+            cloneDir: w.clone.dir,
+            runningMs: Date.now() - w.startedAt,
+          })),
+          queue: queue.map((t) => ({
+            id: t.id,
+            priority: t.priority,
+            waitMs: Date.now() - t.enqueuedAt,
+            cloneDir: t.cloneDir,
+          })),
+          clones: clones.map((c) => ({ dir: c.dir, state: c.state, taskId: c.taskId })),
+          last_chat_id: lastChatId,
+        }) + "\n"
+      );
+      socket.end();
+      break;
+    }
+    case "wait": {
+      const afterId = Number(msg.after ?? 0);
+      if (hasPending() || lastChatId > afterId) {
+        socket.write(JSON.stringify(buildBatch()) + "\n");
+        socket.end();
+      } else {
+        waiters.push(() => {
+          socket.write(JSON.stringify(buildBatch()) + "\n");
+          socket.end();
+        });
       }
       break;
     }
+    case "stop": {
+      socket.write(JSON.stringify({ type: "stopping" }) + "\n");
+      socket.end();
+      process.exit(0);
+    }
+    default:
+      socket.write(JSON.stringify({ error: `unknown: ${msg.type}` }) + "\n");
+      socket.end();
+  }
+}
 
-    case "status": {
-      emit({
-        type: "status",
-        slots: Array.from(slots.values()).map((s) => ({
-          slot: s.slotId,
-          id: s.task.id,
-          priority: s.task.priority,
-          runningMs: Date.now() - s.startedAt,
-        })),
-        queue: queue.map((t) => ({
-          id: t.id,
-          priority: t.priority,
-          waitMs: Date.now() - t.enqueuedAt,
-        })),
-      });
+// ── CLI client ────────────────────────────────────────────────────────────
+
+async function sendToSocket(msg: object): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = createConnection(SOCKET_PATH);
+    let buf = "";
+    socket.on("data", (d) => { buf += d.toString(); });
+    socket.on("end", () => resolve(buf.trim()));
+    socket.on("error", reject);
+    socket.write(JSON.stringify(msg) + "\n");
+  });
+}
+
+const args = process.argv.slice(2);
+const command = args[0];
+function flag(name: string) {
+  const i = args.indexOf(`--${name}`);
+  return i >= 0 && i + 1 < args.length ? args[i + 1] : undefined;
+}
+
+async function main() {
+  if (!command || command === "daemon") {
+    if (existsSync(SOCKET_PATH)) { try { rmSync(SOCKET_PATH); } catch { /* */ } }
+    loadExistingClones();
+    await startGizmoWatcher();
+    const server = createServer(handleConnection);
+    server.listen(SOCKET_PATH, () => {
+      process.stderr.write(`coordinator: ready (socket=${SOCKET_PATH} max_workers=${MAX_WORKERS})\n`);
+    });
+    return;
+  }
+
+  switch (command) {
+    case "enqueue": {
+      const prompt = flag("prompt");
+      if (!prompt) { console.error("--prompt required"); process.exit(1); }
+      console.log(await sendToSocket({ type: "enqueue", prompt, priority: Number(flag("priority") ?? 5), id: flag("id") }));
       break;
     }
-
+    case "cancel":
+      console.log(await sendToSocket({ type: "cancel", id: args[1] })); break;
+    case "pause":
+      console.log(await sendToSocket({ type: "pause", id: args[1] })); break;
+    case "reprioritize":
+      console.log(await sendToSocket({ type: "reprioritize", id: args[1], priority: Number(flag("priority")) })); break;
+    case "status":
+      console.log(await sendToSocket({ type: "status" })); break;
+    case "wait":
+      console.log(await sendToSocket({ type: "wait", after: Number(flag("after") ?? 0) })); break;
+    case "stop":
+      console.log(await sendToSocket({ type: "stop" })); break;
     default:
-      process.stderr.write(`coordinator: unknown message type: ${msg.type}\n`);
+      console.error(`unknown: ${command}\nusage: daemon|enqueue|cancel|pause|reprioritize|status|wait|stop`);
+      process.exit(1);
   }
-});
+}
 
-rl.on("close", () => {
-  process.stderr.write("coordinator: router stdin closed, shutting down\n");
-  for (const s of slots.values()) s.proc.kill("SIGTERM");
-  process.exit(0);
-});
-
-process.stderr.write(
-  `coordinator: ready (max_workers=${MAX_WORKERS}, model=${WORKER_MODEL})\n`
-);
+main().catch((e) => { console.error(e.message ?? e); process.exit(1); });
