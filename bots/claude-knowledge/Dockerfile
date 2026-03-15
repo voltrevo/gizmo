@@ -28,11 +28,17 @@ RUN useradd -m -s /bin/sh agent && \
 COPY bots/claude-knowledge/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# Multi-agent components
+COPY bots/claude-knowledge/coordinator.ts /coordinator.ts
+COPY bots/claude-knowledge/prompt-router.md /prompt-router.md
+COPY bots/claude-knowledge/prompt-worker.md /prompt-worker.md
+
+# Legacy single-agent files (kept for reference during migration)
 COPY bots/claude-knowledge/concurrent-wait.sh /usr/local/bin/concurrent-wait
 RUN chmod +x /usr/local/bin/concurrent-wait
-
 COPY bots/claude-knowledge/prompt.md /prompt.md
 
 VOLUME /knowledge
+VOLUME /knowledge-bare
 
 ENTRYPOINT ["/entrypoint.sh"]

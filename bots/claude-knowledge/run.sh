@@ -35,21 +35,32 @@ if [ -z "$GIZMO_TOKEN" ]; then
 fi
 
 KNOWLEDGE_DIR="${KNOWLEDGE_DIR:-$SCRIPT_DIR/knowledge}"
-mkdir -p "$KNOWLEDGE_DIR"
+KNOWLEDGE_BARE_DIR="${KNOWLEDGE_BARE_DIR:-$SCRIPT_DIR/knowledge-bare}"
+mkdir -p "$KNOWLEDGE_DIR" "$KNOWLEDGE_BARE_DIR"
+
+ROUTER_MODEL="${ROUTER_MODEL:-claude-haiku-4-5-20251001}"
+WORKER_MODEL="${WORKER_MODEL:-claude-sonnet-4-6}"
+MAX_WORKERS="${MAX_WORKERS:-3}"
 
 docker run -d \
   --name "$CONTAINER" \
   --restart unless-stopped \
   $AUTH_ARGS \
   -v "$KNOWLEDGE_DIR:/knowledge" \
+  -v "$KNOWLEDGE_BARE_DIR:/knowledge-bare" \
   -e GIZMO_TOKEN="$GIZMO_TOKEN" \
   -e GIZMO_USER="${GIZMO_USER:-claude}" \
   -e GIZMO_TAGS="${GIZMO_TAGS:-chat}" \
   -e GIZMO_CHANNEL="${GIZMO_CHANNEL:-default}" \
+  -e ROUTER_MODEL="$ROUTER_MODEL" \
+  -e WORKER_MODEL="$WORKER_MODEL" \
+  -e MAX_WORKERS="$MAX_WORKERS" \
   ${MAX_TURNS:+-e MAX_TURNS="$MAX_TURNS"} \
   ${MAX_BUDGET:+-e MAX_BUDGET="$MAX_BUDGET"} \
   "$IMAGE"
 
 echo "Started $CONTAINER (detached, restarts unless stopped)"
-echo "  Logs:  docker logs -f $CONTAINER"
-echo "  Stop:  docker stop $CONTAINER"
+echo "  Logs:      docker logs -f $CONTAINER"
+echo "  Stop:      docker stop $CONTAINER"
+echo "  Router:    $ROUTER_MODEL"
+echo "  Workers:   $WORKER_MODEL (max $MAX_WORKERS concurrent)"
