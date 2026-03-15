@@ -32,6 +32,8 @@ import {
   chmodSync,
 } from "fs";
 import { randomUUID } from "crypto";
+import { GizmoClient, type StoredMessage } from "/opt/gizmo/client.ts";
+import { Signer } from "/opt/gizmo/crypto.ts";
 
 // ── Config ────────────────────────────────────────────────────────────────
 
@@ -79,14 +81,6 @@ interface WorkerEvent {
   error?: string;
 }
 
-interface StoredMessage {
-  id: number;
-  ed25519: string;
-  channel: string;
-  tags: string[];
-  body: unknown;
-  created_at: string;
-}
 
 // ── State ─────────────────────────────────────────────────────────────────
 
@@ -246,6 +240,13 @@ function pauseWorker(taskId: string) {
 const GIZMO_URL = process.env.GIZMO_URL ?? "https://gizmo.voltrevo.com";
 const GIZMO_TOKEN = process.env.GIZMO_TOKEN ?? "";
 const GIZMO_CHANNEL = process.env.GIZMO_CHANNEL ?? "default";
+const GIZMO_SECRET_KEY = process.env.GIZMO_SECRET_KEY ?? "";
+
+const gizmoClient = new GizmoClient({
+  url: GIZMO_URL,
+  token: GIZMO_TOKEN,
+  signer: GIZMO_SECRET_KEY ? new Signer(GIZMO_SECRET_KEY) : Signer.generate(),
+});
 
 function ingestMessages(msgs: StoredMessage[]) {
   const newMsgs = msgs.filter(
@@ -260,56 +261,47 @@ function ingestMessages(msgs: StoredMessage[]) {
 
 async function catchUpHistory() {
   try {
-    const url = new URL(`${GIZMO_URL}/history`);
-    url.searchParams.set("after", String(lastChatId));
-    url.searchParams.set("limit", "200");
-    url.searchParams.set("channel", GIZMO_CHANNEL);
-    const resp = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${GIZMO_TOKEN}`, "X-Ed25519-Pubkey": ROUTER_PUBKEY || "0".repeat(64) },
-    });
-    if (resp.ok) {
-      const data = await resp.json() as { messages: StoredMessage[] };
-      ingestMessages(data.messages);
-    }
+    const result = await gizmoClient.history({ channel: GIZMO_CHANNEL, after: lastChatId, limit: 200 });
+    ingestMessages(result.messages);
   } catch { /* ignore transient errors */ }
 }
 
+async function initLastChatId() {
+  // Seed lastChatId to the current latest so the router only gets new messages.
+  if (lastChatId !== 0) return;
+  try {
+    const result = await gizmoClient.lastModified(undefined, GIZMO_CHANNEL);
+    if (result.last_id != null) {
+      lastChatId = result.last_id;
+      process.stderr.write(`coordinator: seeded lastChatId=${lastChatId}\n`);
+    }
+  } catch { /* ignore */ }
+}
+
 function startGizmoWatcher() {
-  const wsBase = GIZMO_URL.replace(/^http/, "ws");
-  const wsUrl = `${wsBase}/ws`;
+  const connect = async () => {
+    try {
+      await gizmoClient.connect();
+    } catch (err) {
+      process.stderr.write(`coordinator: gizmo WebSocket error: ${err}\n`);
+      setTimeout(connect, 2000);
+      return;
+    }
 
-  const connect = () => {
-    const ws = new WebSocket(wsUrl, {
-      headers: {
-        Authorization: `Bearer ${GIZMO_TOKEN}`,
-        "X-Ed25519-Pubkey": ROUTER_PUBKEY || "0".repeat(64),
-      },
-    } as unknown as string[]);
+    process.stderr.write("coordinator: gizmo WebSocket connected\n");
 
-    ws.onopen = async () => {
-      process.stderr.write("coordinator: gizmo WebSocket connected\n");
-      // Catch up on any messages missed before this connection was established.
-      await catchUpHistory();
-      ws.send(JSON.stringify({ type: "subscribe", sub_id: "coordinator", channel: GIZMO_CHANNEL }));
-    };
-
-    ws.onmessage = (ev) => {
-      try {
-        const data = JSON.parse(ev.data as string);
-        if (data.type === "message" && data.sub_id === "coordinator") {
-          ingestMessages([data.message as StoredMessage]);
-        }
-      } catch { /* ignore parse errors */ }
-    };
-
-    ws.onclose = () => {
+    gizmoClient.onClose(() => {
       process.stderr.write("coordinator: gizmo WebSocket closed, reconnecting in 2s\n");
       setTimeout(connect, 2000);
-    };
+    });
 
-    ws.onerror = () => {
-      process.stderr.write("coordinator: gizmo WebSocket error\n");
-    };
+    await initLastChatId();
+    await catchUpHistory();
+
+    await gizmoClient.subscribe(
+      (msg) => ingestMessages([msg]),
+      { channel: GIZMO_CHANNEL, subId: "coordinator" },
+    );
   };
 
   connect();
@@ -327,12 +319,12 @@ function notifyWaiters() {
 }
 
 function buildBatch(): object {
-  return {
-    type: "batch",
-    chat: pendingChatMessages.splice(0),
-    last_chat_id: lastChatId,
-    worker_events: pendingWorkerEvents.splice(0),
-  };
+  const chat = pendingChatMessages.splice(0);
+  const worker_events = pendingWorkerEvents.splice(0);
+  process.stderr.write(
+    `coordinator: batch → ${chat.length} chat, ${worker_events.length} worker events\n`,
+  );
+  return { type: "batch", chat, last_chat_id: lastChatId, worker_events };
 }
 
 // ── IPC server ────────────────────────────────────────────────────────────
@@ -434,8 +426,7 @@ function handleMessage(socket: Socket, msg: Record<string, unknown>) {
       break;
     }
     case "wait": {
-      const afterId = Number(msg.after ?? 0);
-      if (hasPending() || lastChatId > afterId) {
+      if (hasPending()) {
         socket.write(JSON.stringify(buildBatch()) + "\n");
         socket.end();
       } else {

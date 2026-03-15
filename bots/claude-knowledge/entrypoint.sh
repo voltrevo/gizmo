@@ -108,10 +108,12 @@ ROUTER_PUBKEY=$(gizmo users 2>/dev/null | awk -v u="${GIZMO_USER:-claude}" 'inde
 # --- Phase 2: Drop privileges, run router ---
 
 echo "Starting coordinator daemon..."
+GIZMO_SECRET_KEY=$(cat ~/.local/share/gizmo/users/${GIZMO_USER:-claude}/secret-key 2>/dev/null || true)
 ROUTER_PUBKEY="$ROUTER_PUBKEY" \
   GIZMO_TOKEN="$GIZMO_TOKEN" \
   GIZMO_URL="${GIZMO_URL:-https://gizmo.voltrevo.com}" \
   GIZMO_CHANNEL="${GIZMO_CHANNEL:-default}" \
+  GIZMO_SECRET_KEY="$GIZMO_SECRET_KEY" \
   bun /opt/claude-knowledge/coordinator.ts daemon 2>/var/log/coordinator.log &
 
 unset ANTHROPIC_API_KEY GIZMO_TOKEN GIZMO_PRIVATE_KEY
