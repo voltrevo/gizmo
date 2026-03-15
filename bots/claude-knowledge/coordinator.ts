@@ -93,6 +93,7 @@ const queue: Task[] = [];
 const activeWorkers = new Map<string, ActiveWorker>();
 const clones: Clone[] = [];
 let lastChatId = 0;
+const seenMessageIds = new Set<number>();
 const pendingChatMessages: StoredMessage[] = [];
 const pendingWorkerEvents: WorkerEvent[] = [];
 const waiters: Array<() => void> = [];
@@ -246,8 +247,11 @@ const GIZMO_TOKEN = process.env.GIZMO_TOKEN ?? "";
 const GIZMO_CHANNEL = process.env.GIZMO_CHANNEL ?? "default";
 
 function ingestMessages(msgs: StoredMessage[]) {
-  const newMsgs = msgs.filter((m) => !ROUTER_PUBKEY || m.ed25519 !== ROUTER_PUBKEY);
+  const newMsgs = msgs.filter(
+    (m) => (!ROUTER_PUBKEY || m.ed25519 !== ROUTER_PUBKEY) && !seenMessageIds.has(m.id),
+  );
   if (newMsgs.length === 0) return;
+  for (const m of newMsgs) seenMessageIds.add(m.id);
   lastChatId = Math.max(lastChatId, ...newMsgs.map((m) => m.id));
   pendingChatMessages.push(...newMsgs);
   notifyWaiters();
