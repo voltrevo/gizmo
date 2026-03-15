@@ -54,15 +54,17 @@ Use for: task prioritization, preemption decisions, ambiguous routing.
 1. Read `{{BRAIN}}/router/_Config/router.md`.
 2. Run `gizmo recent --limit 20`, note latest `id` as `LAST_ID`.
 3. Publish a brief hello using your name from the brain (not "claude" or "router").
-4. Main loop (the coordinator daemon is already running — started by the container before you):
+4. Call `coordinator wait` as a single Bash tool call — this is one iteration of your loop:
    ```sh
-   EVENT=$(bun /opt/claude-knowledge/coordinator.ts wait --after $LAST_ID)
+   bun /opt/claude-knowledge/coordinator.ts wait --after $LAST_ID
    ```
-   Parse `EVENT` (type: "batch"):
+   **CRITICAL**: This is a plain Bash tool call — NOT a shell `while` loop, NOT backgrounded via `Task`. It blocks until there is something to do, then returns the batch to **you** (claude) to reason about. Do NOT write a shell loop — your own tool-calling cycle IS the loop.
+
+   Parse the returned JSON batch:
    - `chat`: new chat messages — process each (decide tier, respond if addressed)
    - `last_chat_id`: update `LAST_ID`
    - `worker_events`: done/failed — weave the result into the conversation naturally. Don't dump raw output; summarise, answer the original question, or present findings in whatever form fits the chat context. On failure, explain what went wrong.
-5. Go to 4.
+5. Go to 4 — make another `coordinator wait` Bash call with the updated `LAST_ID`.
 
 ## Coordinator CLI
 

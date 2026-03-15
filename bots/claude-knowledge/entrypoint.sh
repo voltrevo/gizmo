@@ -1,8 +1,6 @@
 #!/bin/sh
 set -e
 
-# --- Phase 1: Configure as root (agent can't see this) ---
-
 gizmo config --url "${GIZMO_URL:-https://gizmo.voltrevo.com}" --token "${GIZMO_TOKEN}"
 
 if [ -n "$GIZMO_PRIVATE_KEY" ]; then
@@ -12,26 +10,14 @@ else
   gizmo keygen --user "${GIZMO_USER:-claude}"
 fi
 
-mkdir -p /home/agent/.local/share
-cp -r /root/.local/share/gizmo /home/agent/.local/share/gizmo
-
-if [ -f /root/.claude/.credentials.json ]; then
-  mkdir -p /home/agent/.claude
-  cp /root/.claude/.credentials.json /home/agent/.claude/.credentials.json
-  chmod 600 /home/agent/.claude/.credentials.json
-fi
-
-chmod 600 /root/.claude/.credentials.json 2>/dev/null || true
-chmod -R 700 /root/.local/share/gizmo 2>/dev/null || true
-
 # --- Brain repo setup ---
 #
-# /brain is a single mounted volume containing:
-#   /brain/bare           — bare git repo (the "remote")
-#   /brain/router         — router agent's clone
-#   /brain/workers/slot-N — each worker's permanent clone
+# ~/brain contains:
+#   brain/bare           — bare git repo (the "remote")
+#   brain/router         — router agent's clone
+#   brain/workers/slot-N — each worker's permanent clone
 #
-BRAIN="${BRAIN:-/brain}"
+BRAIN="${BRAIN:-/root/brain}"
 BRAIN_BARE="$BRAIN/bare"
 ROUTER_CLONE="$BRAIN/router"
 MAX_WORKERS="${MAX_WORKERS:-3}"
@@ -79,8 +65,6 @@ while [ "$i" -le "$MAX_WORKERS" ]; do
   i=$((i + 1))
 done
 
-chown -R agent:agent "$BRAIN"
-
 # --- Copy coordinator and prompts ---
 mkdir -p /opt/claude-knowledge
 cp /coordinator.ts /opt/claude-knowledge/coordinator.ts
@@ -92,9 +76,6 @@ sed -i "s/{{USER}}/${GIZMO_USER:-claude}/g" /tmp/prompt-router.md
 sed -i "s/{{TAGS}}/${GIZMO_TAGS:-chat}/g" /tmp/prompt-router.md
 sed -i "s/{{CHANNEL}}/${GIZMO_CHANNEL:-default}/g" /tmp/prompt-router.md
 sed -i "s|{{BRAIN}}|$BRAIN|g" /tmp/prompt-router.md
-chown agent:agent /tmp/prompt-router.md
-
-chown -R agent:agent /home/agent
 
 ROUTER_MODEL="${ROUTER_MODEL:-claude-haiku-4-5-20251001}"
 WORKER_MODEL="${WORKER_MODEL:-claude-sonnet-4-6}"
@@ -105,8 +86,6 @@ gizmo publish --user "${GIZMO_USER:-claude}" --tags "${GIZMO_TAGS:-chat}" --body
 # Derive router's ed25519 pubkey so coordinator can filter out self-messages
 ROUTER_PUBKEY=$(gizmo users 2>/dev/null | awk -v u="${GIZMO_USER:-claude}" 'index($0,u)==1{print $NF}')
 
-# --- Phase 2: Drop privileges, run router ---
-
 echo "Starting coordinator daemon..."
 GIZMO_SECRET_KEY=$(cat ~/.local/share/gizmo/users/${GIZMO_USER:-claude}/secret-key 2>/dev/null || true)
 ROUTER_PUBKEY="$ROUTER_PUBKEY" \
@@ -116,25 +95,19 @@ ROUTER_PUBKEY="$ROUTER_PUBKEY" \
   GIZMO_SECRET_KEY="$GIZMO_SECRET_KEY" \
   bun /opt/claude-knowledge/coordinator.ts daemon 2>/var/log/coordinator.log &
 
-unset ANTHROPIC_API_KEY GIZMO_TOKEN GIZMO_PRIVATE_KEY
-
 # Wait for coordinator socket before starting router
 until [ -S /tmp/coordinator.sock ]; do sleep 0.2; done
 
 echo "Starting router agent (model: $ROUTER_MODEL, max_workers: $MAX_WORKERS)..."
-exec su -s /bin/sh agent -c "
-  export MAX_WORKERS='$MAX_WORKERS'
-  export WORKER_MODEL='$WORKER_MODEL'
-  export BRAIN='$BRAIN'
-  while true; do
-    claude -p \"\$(cat /tmp/prompt-router.md)\" \
-      --allowedTools 'Bash,Read,Write,Glob,Grep,WebFetch,WebSearch' \
-      --model '$ROUTER_MODEL' \
-      ${MAX_TURNS:+--max-turns $MAX_TURNS} \
-      ${MAX_BUDGET:+--max-budget-usd $MAX_BUDGET} \
-      --output-format stream-json \
-      --verbose
-    echo 'Router exited, restarting in 3s...' >&2
-    sleep 3
-  done
-" 2>&1
+export MAX_WORKERS WORKER_MODEL BRAIN
+while true; do
+  claude -p "$(cat /tmp/prompt-router.md)" \
+    --allowedTools 'Bash,Read,Write,Glob,Grep,WebFetch,WebSearch' \
+    --model "$ROUTER_MODEL" \
+    --max-turns ${MAX_TURNS:-1000} \
+    ${MAX_BUDGET:+--max-budget-usd $MAX_BUDGET} \
+    --output-format stream-json \
+    --verbose
+  echo 'Router exited, restarting in 3s...' >&2
+  sleep 3
+done

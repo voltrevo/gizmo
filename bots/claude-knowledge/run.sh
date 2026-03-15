@@ -12,13 +12,23 @@ docker build -f "$SCRIPT_DIR/Dockerfile" -t "$IMAGE" "$PROJECT_ROOT"
 # Stop existing container if running
 docker rm -f "$CONTAINER" 2>/dev/null || true
 
-# Auth: either ANTHROPIC_API_KEY for API, or mount ~/.claude for Max/OAuth
+# Persistent root home: gizmo keys, brain, claude credentials all live here
+MOUNT_DIR="${MOUNT_DIR:-$SCRIPT_DIR/mount}"
+ROOT_HOME="${ROOT_HOME:-$MOUNT_DIR/root}"
+mkdir -p "$ROOT_HOME"
+ROOT_HOME="$(cd "$ROOT_HOME" && pwd)"
+
+# Auth: either ANTHROPIC_API_KEY for API, or credentials in root home for Max/OAuth
 AUTH_ARGS=""
 if [ -n "$ANTHROPIC_API_KEY" ]; then
   AUTH_ARGS="-e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
+elif [ -f "$ROOT_HOME/.claude/.credentials.json" ]; then
+  echo "No ANTHROPIC_API_KEY set — using credentials from root home mount"
 elif [ -f "$HOME/.claude/.credentials.json" ]; then
-  echo "No ANTHROPIC_API_KEY set — mounting credentials for OAuth/Max auth"
-  AUTH_ARGS="-v $HOME/.claude/.credentials.json:/root/.claude/.credentials.json:ro"
+  echo "No ANTHROPIC_API_KEY set — seeding credentials from host ~/.claude"
+  mkdir -p "$ROOT_HOME/.claude"
+  cp "$HOME/.claude/.credentials.json" "$ROOT_HOME/.claude/.credentials.json"
+  chmod 600 "$ROOT_HOME/.claude/.credentials.json"
 else
   echo "Error: Set ANTHROPIC_API_KEY or log in with 'claude' first (for Max)" >&2
   exit 1
@@ -34,10 +44,6 @@ if [ -z "$GIZMO_TOKEN" ]; then
   fi
 fi
 
-# Brain: single directory containing bare repo + all agent clones
-BRAIN_DIR="${BRAIN_DIR:-$SCRIPT_DIR/brain}"
-mkdir -p "$BRAIN_DIR"
-
 ROUTER_MODEL="${ROUTER_MODEL:-claude-haiku-4-5-20251001}"
 WORKER_MODEL="${WORKER_MODEL:-claude-sonnet-4-6}"
 MAX_WORKERS="${MAX_WORKERS:-3}"
@@ -46,7 +52,7 @@ docker run -d \
   --name "$CONTAINER" \
   --restart unless-stopped \
   $AUTH_ARGS \
-  -v "$BRAIN_DIR:/brain" \
+  -v "$ROOT_HOME:/root" \
   -e GIZMO_TOKEN="$GIZMO_TOKEN" \
   -e GIZMO_URL="${GIZMO_URL:-https://gizmo.voltrevo.com}" \
   -e GIZMO_USER="${GIZMO_USER:-claude}" \
@@ -63,6 +69,7 @@ docker run -d \
 echo "Started $CONTAINER (detached, restarts unless stopped)"
 echo "  Logs:      docker logs -f $CONTAINER"
 echo "  Stop:      docker stop $CONTAINER"
-echo "  Brain:     $BRAIN_DIR"
+echo "  Home:      $ROOT_HOME"
+echo "  Brain:     $ROOT_HOME/brain"
 echo "  Router:    $ROUTER_MODEL"
 echo "  Workers:   $WORKER_MODEL (max $MAX_WORKERS concurrent)"
