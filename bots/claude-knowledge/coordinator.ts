@@ -21,7 +21,7 @@
  *     { "type": "failed",   "id": "uuid", "slot": N, "error": "..." }
  *     { "type": "status",   "slots": [...], "queue": [...] }
  *
- * Worker slots: /knowledge-workers/slot-{N}/ — permanent clone of knowledge bare repo.
+ * Worker slots: /brain/workers/slot-{N}/ — permanent clone of brain bare repo.
  * Each worker also gets a /tmp/wren-task-{N}/ for task-specific scratch space (cleaned per task).
  */
 
@@ -32,7 +32,8 @@ import * as readline from "readline";
 
 const MAX_WORKERS = Number(process.env.MAX_WORKERS ?? 3);
 const WORKER_MODEL = process.env.WORKER_MODEL ?? "claude-sonnet-4-6";
-const KNOWLEDGE_WORKERS_BASE = process.env.KNOWLEDGE_WORKERS_BASE ?? "/knowledge-workers";
+const BRAIN = process.env.BRAIN ?? "/brain";
+const WORKERS_BASE = `${BRAIN}/workers`;
 const WORKER_MAX_TURNS = Number(process.env.WORKER_MAX_TURNS ?? 30);
 
 interface Task {
@@ -69,7 +70,7 @@ function pickNextTask(): Task | undefined {
 }
 
 function startWorker(slot: number, task: Task) {
-  const knowledgeDir = `${KNOWLEDGE_WORKERS_BASE}/slot-${slot}`;
+  const knowledgeDir = `${WORKERS_BASE}/slot-${slot}`;
   const taskDir = `/tmp/wren-task-${slot}`;
   rmSync(taskDir, { recursive: true, force: true });
   mkdirSync(taskDir, { recursive: true });
@@ -80,7 +81,10 @@ function startWorker(slot: number, task: Task) {
 
 ---
 Worker slot: ${slot}. Task ID: ${task.id}.
-Your knowledge clone: ${knowledgeDir} (pull before reading, push after updating)
+Your brain clone: ${knowledgeDir}
+  - Sync before reading: cd ${knowledgeDir} && git pull
+  - Sync after committing: cd ${knowledgeDir} && git push origin HEAD
+  - On push conflict: git pull && git push
 Write your result to: ${resultPath}
 `;
 

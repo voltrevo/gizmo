@@ -34,10 +34,9 @@ if [ -z "$GIZMO_TOKEN" ]; then
   fi
 fi
 
-KNOWLEDGE_DIR="${KNOWLEDGE_DIR:-$SCRIPT_DIR/knowledge}"
-KNOWLEDGE_BARE_DIR="${KNOWLEDGE_BARE_DIR:-$SCRIPT_DIR/knowledge-bare}"
-KNOWLEDGE_WORKERS_DIR="${KNOWLEDGE_WORKERS_DIR:-$SCRIPT_DIR/knowledge-workers}"
-mkdir -p "$KNOWLEDGE_DIR" "$KNOWLEDGE_BARE_DIR" "$KNOWLEDGE_WORKERS_DIR"
+# Brain: single directory containing bare repo + all agent clones
+BRAIN_DIR="${BRAIN_DIR:-$SCRIPT_DIR/brain}"
+mkdir -p "$BRAIN_DIR"
 
 ROUTER_MODEL="${ROUTER_MODEL:-claude-haiku-4-5-20251001}"
 WORKER_MODEL="${WORKER_MODEL:-claude-sonnet-4-6}"
@@ -47,9 +46,7 @@ docker run -d \
   --name "$CONTAINER" \
   --restart unless-stopped \
   $AUTH_ARGS \
-  -v "$KNOWLEDGE_DIR:/knowledge" \
-  -v "$KNOWLEDGE_BARE_DIR:/knowledge-bare" \
-  -v "$KNOWLEDGE_WORKERS_DIR:/knowledge-workers" \
+  -v "$BRAIN_DIR:/brain" \
   -e GIZMO_TOKEN="$GIZMO_TOKEN" \
   -e GIZMO_USER="${GIZMO_USER:-claude}" \
   -e GIZMO_TAGS="${GIZMO_TAGS:-chat}" \
@@ -64,5 +61,6 @@ docker run -d \
 echo "Started $CONTAINER (detached, restarts unless stopped)"
 echo "  Logs:      docker logs -f $CONTAINER"
 echo "  Stop:      docker stop $CONTAINER"
+echo "  Brain:     $BRAIN_DIR"
 echo "  Router:    $ROUTER_MODEL"
 echo "  Workers:   $WORKER_MODEL (max $MAX_WORKERS concurrent)"

@@ -14,16 +14,16 @@ Always use the `gizmo` command directly. Do NOT use `npx`, `bun run`, `node`, or
 
 ## Knowledge directory
 
-Your knowledge base is at `/knowledge/` (a git worktree). Check it before answering.
+Your knowledge base is at `/brain/router/` (a git clone). Check it before answering.
 
-- `/knowledge/_Config/router.md` — identity, active users, startup sequence
-- `/knowledge/Wiki/people/` — per-person notes
-- `/knowledge/Wiki/topics/` — per-topic notes
-- `/knowledge/_Temporal/Logs/` — session logs
+- `/brain/router/_Config/router.md` — identity, active users, startup sequence
+- `/brain/router/Wiki/people/` — per-person notes
+- `/brain/router/Wiki/topics/` — per-topic notes
+- `/brain/router/_Temporal/Logs/` — session logs
 
 After meaningful interactions, commit knowledge updates:
 ```sh
-cd /knowledge && git add -A && git commit -m "<short description>"
+cd {{BRAIN}}/router && git add -A && git commit -m "<short description>"
 git push origin HEAD
 ```
 
@@ -62,7 +62,7 @@ Then act on the decision immediately.
 
 ## Your loop
 
-1. Read `/knowledge/_Config/router.md` to restore identity and last state.
+1. Read `/brain/router/_Config/router.md` to restore identity and last state.
 2. Run `gizmo recent --limit 20`, note latest `id`.
 3. Publish hello message.
 4. Start the coordinator (if not already running):

@@ -1,6 +1,6 @@
 # gizmo-claude-knowledge
 
-A Dockerized multi-agent Claude system that participates in [gizmo](https://github.com/voltrevo/gizmo) group chat and maintains a persistent shared knowledge base.
+A Dockerized multi-agent Claude system that participates in [gizmo](https://github.com/voltrevo/gizmo) group chat and maintains a persistent shared brain (knowledge base).
 
 ## Architecture
 
@@ -29,13 +29,23 @@ Router agent (haiku)          ← always-on, responds fast, never does heavy wor
 | `prompt-router.md` | System prompt for the haiku router agent |
 | `prompt-worker.md` | System prompt for sonnet worker agents |
 | `coordinator.ts` | Bun script managing worker slots and task queue |
-| `entrypoint.sh` | Docker entrypoint: configures, starts coordinator + router |
+| `entrypoint.sh` | Docker entrypoint: configures, init brain repo, starts router |
 | `Dockerfile` | Container definition |
 | `run.sh` | Build + launch helper |
 
-### Knowledge base (bare repo + worktrees)
+### Brain repo structure (single `/brain` volume)
 
-Knowledge is stored in a bare git repo (`/knowledge-bare`). Each agent instance gets a worktree (`/knowledge`). Workers push to the bare repo; pull-rebase on conflict. No namespacing — rely on git merge resolution.
+```
+brain/
+  bare/           ← bare git repo (the "remote")
+  router/         ← router agent's clone
+  workers/
+    slot-1/       ← worker 1's permanent clone
+    slot-2/       ← worker 2's permanent clone
+    slot-3/       ← worker 3's permanent clone
+```
+
+All clones treat `brain/bare` as `origin`. Sync via standard `git pull` / `git push`. Merge on conflict (not rebase) — parallel history is preserved.
 
 ## Quick start
 
@@ -62,9 +72,9 @@ ANTHROPIC_API_KEY=sk-ant-... ./run.sh
 | `ROUTER_MODEL` | Model for router agent | `claude-haiku-4-5-20251001` |
 | `WORKER_MODEL` | Model for worker agents | `claude-sonnet-4-6` |
 | `MAX_WORKERS` | Max concurrent workers | `3` |
-| `MAX_TURNS` | Max router turns (unlimited = no restart) | _(unlimited)_ |
+| `MAX_TURNS` | Max router turns | _(unlimited)_ |
 | `MAX_BUDGET` | Cost cap (USD) | _(unlimited)_ |
-| `KNOWLEDGE_BARE` | Path for bare git repo | `/knowledge-bare` |
+| `BRAIN_DIR` | Host path for brain volume | `./brain` |
 
 ## Managing
 
@@ -74,14 +84,13 @@ docker stop gizmo-claude      # stop (won't auto-restart)
 docker start gizmo-claude     # start again
 ```
 
-## Knowledge directory
-
-The bare repo is mounted from the host. Worktree at `/knowledge` inside the container.
+## Brain directory (on host)
 
 ```sh
-ls knowledge/Wiki/people/     # per-person notes
-ls knowledge/Wiki/topics/     # per-topic notes
-ls knowledge/_Temporal/Logs/  # session event logs
+ls brain/bare/           # bare git repo
+ls brain/router/         # router's working copy
+ls brain/workers/slot-1/ # worker 1's working copy
+git -C brain/bare log    # full history from all agents
 ```
 
 ## Coordinator IPC

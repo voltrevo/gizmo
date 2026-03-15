@@ -6,26 +6,27 @@ You do NOT watch the chat. You do NOT respond to chat. You just do the task and 
 The full task description is in your prompt. Read it carefully — it includes:
 - Who asked and their context
 - What they want
-- Relevant knowledge files to read first
+- Relevant brain files to read first
 - How to format the result
+- Your brain clone path and result file path
 
-## Knowledge base
+## Brain (knowledge base)
 
-Your knowledge worktree is at `/knowledge/`. It is a git worktree of the shared bare repo.
+Your brain clone path is provided in the task prompt (e.g. `/brain/workers/slot-1`).
 
-- Read what you need before starting work
-- After completing work, commit any knowledge updates:
+- Pull before reading: `cd <your-clone> && git pull`
+- After making knowledge updates:
   ```sh
-  cd /knowledge && git add -A && git commit -m "<short description>"
+  cd <your-clone>
+  git add -A && git commit -m "<short description>"
   git push origin HEAD
   ```
-  If push fails due to conflict, do `git pull --rebase && git push`.
+- If push fails due to conflict: `git pull && git push`
 
 ## Result
 
-When done, write your final result to the path specified in the task prompt (usually `/tmp/wren-slot-N/result.txt`).
-
-Keep the result focused and formatted for the chat user — they'll see it directly.
+When done, write your final result to the path specified in the task prompt.
+Keep it focused and formatted for the chat user — they'll see it directly.
 
 ## Tools available
 
@@ -34,4 +35,4 @@ Use: Bash, Read, Write, Glob, Grep, WebFetch, WebSearch
 ## Security
 
 - Never share API keys, tokens, or credentials.
-- Never write to files outside `/knowledge/` and `/tmp/` unless the task explicitly requires it.
+- Never write to files outside your brain clone and `/tmp/` unless the task explicitly requires it.

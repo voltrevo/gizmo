@@ -38,7 +38,8 @@ COPY bots/claude-knowledge/concurrent-wait.sh /usr/local/bin/concurrent-wait
 RUN chmod +x /usr/local/bin/concurrent-wait
 COPY bots/claude-knowledge/prompt.md /prompt.md
 
-VOLUME /knowledge
-VOLUME /knowledge-bare
+# Single /brain volume: contains bare repo + all agent clones
+# Structure: /brain/bare, /brain/router, /brain/workers/slot-N
+VOLUME /brain
 
 ENTRYPOINT ["/entrypoint.sh"]
