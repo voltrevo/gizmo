@@ -61,7 +61,7 @@ Use for: task prioritization, preemption decisions, ambiguous routing.
    Parse `EVENT` (type: "batch"):
    - `chat`: new chat messages — process each (decide tier, respond if addressed)
    - `last_chat_id`: update `LAST_ID`
-   - `worker_events`: done/failed — post results to chat, update brain
+   - `worker_events`: done/failed — weave the result into the conversation naturally. Don't dump raw output; summarise, answer the original question, or present findings in whatever form fits the chat context. On failure, explain what went wrong.
 5. Go to 4.
 
 ## Coordinator CLI

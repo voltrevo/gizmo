@@ -148,7 +148,7 @@ function pruneIdleClones() {
 
 // ── Worker management ─────────────────────────────────────────────────────
 
-function startWorker(task: Task, clone: Clone) {
+function startWorker(task: Task, clone: Clone, isResume = false) {
   clone.state = "active";
   clone.taskId = task.id;
   clone.lastUsedAt = Date.now();
@@ -160,16 +160,20 @@ function startWorker(task: Task, clone: Clone) {
 
   const resultPath = `${taskDir}/result.txt`;
 
-  const workerPrompt = `${task.prompt}
+  const resumeNote = isResume
+    ? `NOTE: This task was previously started and paused. Your brain clone (${clone.dir}) may contain partial work from the previous run — pull and review what's already there before continuing. Do not start over.\n\n`
+    : "";
+
+  const workerPrompt = `${resumeNote}${task.prompt}
 
 ---
 Task ID: ${task.id}
 Brain clone: ${clone.dir}
   - Sync before reading: cd ${clone.dir} && git pull
-  - Sync after knowledge updates: cd ${clone.dir} && git add -A && git commit -m "<desc>" && git push origin HEAD
-  - On push conflict: git pull && git push
+  - If you make brain updates, commit and push incrementally (so progress is preserved if this task is paused):
+    cd ${clone.dir} && git add -A && git commit -m "<desc>" && git push origin HEAD
+  - On push conflict: git fetch origin && git merge origin/HEAD, resolve, then push
 Write result to: ${resultPath}
-Commit knowledge incrementally so paused work is preserved.
 `;
 
   const proc = spawn(
@@ -220,7 +224,7 @@ function drainQueue() {
     const resumeClone = task.cloneDir
       ? clones.find((c) => c.dir === task.cloneDir && c.state === "paused")
       : undefined;
-    startWorker(task, resumeClone ?? getFreeClone());
+    startWorker(task, resumeClone ?? getFreeClone(), !!resumeClone);
   }
 }
 

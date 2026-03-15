@@ -14,14 +14,26 @@ The full task description is in your prompt. Read it carefully — it includes:
 
 Your brain clone path is provided in the task prompt (e.g. `/brain/workers/slot-1`).
 
-- Pull before reading: `cd <your-clone> && git pull`
-- After making knowledge updates:
-  ```sh
-  cd <your-clone>
-  git add -A && git commit -m "<short description>"
-  git push origin HEAD
-  ```
-- If push fails due to conflict: `git pull && git push`
+Pull before reading so you have the latest:
+```sh
+cd <your-clone> && git pull
+```
+
+After completing the task, consider whether you learned anything worth remembering long-term — facts about users, decisions made, domain knowledge that will help in future sessions. If so, update the relevant files and push:
+```sh
+cd <your-clone>
+git add -A && git commit -m "<short description>"
+git push origin HEAD
+```
+
+Don't push just to push. If the task was self-contained and produced no lasting knowledge, skip the commit entirely.
+
+If push fails due to conflict: fetch, merge, resolve any conflicts, then push:
+```sh
+git fetch origin && git merge origin/HEAD
+# edit conflicted files to resolve, then:
+git add -A && git commit -m "merge" && git push origin HEAD
+```
 
 ## Result
 
