@@ -1429,8 +1429,8 @@ function processReaction(msg) {
 }
 
 function addMessage(msg) {
-  if (isReactionMsg(msg)) { processReaction(msg); return; }
-  if (messageMap.has(msg.id)) return;
+  if (isReactionMsg(msg)) { processReaction(msg); return false; }
+  if (messageMap.has(msg.id)) return false;
   messageMap.set(msg.id, msg);
   if (allMessages.length === 0 || msg.id > allMessages[allMessages.length - 1].id) {
     allMessages.push(msg);
@@ -1445,6 +1445,7 @@ function addMessage(msg) {
     const nc = new Map(); for (const [k,v] of heightCache) nc.set(k>=lo?k+1:k,v);
     heightCache = nc;
   }
+  return true;
 }
 
 function scrollToBottom(smooth) {
@@ -1571,7 +1572,6 @@ function unsubscribeFromChannel() {
 
 function connectWs() {
   ws = new WebSocket(wsUrl);
-  ws.onopen = () => { updateStatus("connected"); subscribeToChannel(); };
   ws.onmessage = (ev) => {
     const data = JSON.parse(ev.data);
     if (data.type === "message") {
@@ -1595,6 +1595,24 @@ function connectWs() {
   };
   ws.onerror = () => showError("connection error — reconnecting…");
   ws.onclose = () => { updateStatus("reconnecting..."); setTimeout(connectWs, 2000); };
+  ws.onopen = async () => {
+    updateStatus("connected");
+    subscribeToChannel();
+    // Gap-fill: fetch any messages missed while disconnected
+    const newestId = allMessages.length ? allMessages[allMessages.length - 1].id : null;
+    if (newestId) {
+      const p = new URLSearchParams({ channel: currentChannel, after: String(newestId), limit: "200" });
+      const resp = await fetch(`${SERVER}/history?${p}`, {
+        headers: { Authorization: `Bearer ${TOKEN}`, "X-Ed25519-Pubkey": identity.publicKey },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        let added = 0;
+        for (const msg of data.messages) { if (addMessage(msg)) added++; }
+        if (added) { renderedRange = { start: -1, end: -1 }; renderVirtualMessages(); if (isUserNearBottom) requestAnimationFrame(() => scrollToBottom(true)); }
+      }
+    }
+  };
 }
 
 // ── Channel switching ─────────────────────────────────────────────────────
@@ -1709,19 +1727,21 @@ function getReactionCounts(msgId) {
   const out = [];
   for (const [emoji, byPubkey] of byEmoji) {
     let count = 0, mine = false;
+    const reactors = [];
     for (const [pk, action] of byPubkey) {
-      if (action === "add") { count++; if (pk === identity.publicKey) mine = true; }
+      if (action === "add") { count++; if (pk === identity.publicKey) mine = true; reactors.push(getUsername(pk)); }
     }
-    if (count > 0) out.push({ emoji, count, mine });
+    if (count > 0) out.push({ emoji, count, mine, reactors });
   }
   return out.sort((a, b) => b.count - a.count);
 }
 
 function buildReactionsHtml(msgId) {
   const counts = getReactionCounts(msgId);
-  const pills = counts.map(({ emoji, count, mine }) =>
-    `<button class="reaction-pill${mine ? " mine" : ""}" data-ref="${msgId}" data-emoji="${escapeHtml(emoji)}">${emoji}<span class="rcount">${count}</span></button>`
-  ).join("");
+  const pills = counts.map(({ emoji, count, mine, reactors }) => {
+    const tip = escapeHtml(reactors.join(", "));
+    return `<button class="reaction-pill${mine ? " mine" : ""}" data-ref="${msgId}" data-emoji="${escapeHtml(emoji)}" title="${tip}">${emoji}<span class="rcount">${count}</span></button>`;
+  }).join("");
   return `<div class="reactions">${pills}<button class="reaction-add" data-ref="${msgId}" aria-label="Add reaction">+</button></div>`;
 }
 
