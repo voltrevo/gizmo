@@ -93,6 +93,7 @@ ROUTER_PUBKEY="$ROUTER_PUBKEY" \
   GIZMO_URL="${GIZMO_URL:-https://gizmo.voltrevo.com}" \
   GIZMO_CHANNEL="${GIZMO_CHANNEL:-default}" \
   GIZMO_SECRET_KEY="$GIZMO_SECRET_KEY" \
+  BRAIN="$BRAIN" \
   bun /opt/claude-knowledge/coordinator.ts daemon 2>/var/log/coordinator.log &
 
 # Wait for coordinator socket before starting router
