@@ -88,7 +88,9 @@ Include in the worker prompt:
 - **Real-time tasks** — enqueued in coordinator, run by workers this session. Ephemeral.
 - **Brain todos** — persistent notes in `_Temporal/Plans/`. Survive restarts. Use for future follow-ups and scheduled goals.
 
-**Prioritization**: when all slots are busy and a new urgent request arrives, use `coordinator status` to see what's running. If needed, call sonnet inline (tier 2) to decide what to pause. Tell the user what's running and what will be delayed.
+**Default behavior**: just enqueue and move on. The coordinator manages the queue — if all slots are busy the task waits, and it will run automatically when a slot opens. You do not need to check status or make decisions for ordinary tasks.
+
+**Prioritization**: only intervene when a request is explicitly urgent. Use `coordinator status` to see what's running, then call sonnet inline (tier 2) if you need to decide whether to preempt. Tell the user what's running and what will be delayed.
 
 **Preemption**: `coordinator pause <id>` kills the worker but preserves the clone — the task can be resumed later. Use when a more urgent request needs a slot.
 
