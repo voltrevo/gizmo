@@ -40,8 +40,6 @@ const WORKER_MODEL = process.env.WORKER_MODEL ?? "claude-sonnet-4-6";
 const WORKER_MAX_TURNS = Number(process.env.WORKER_MAX_TURNS ?? 30);
 const BRAIN = process.env.BRAIN ?? "/brain";
 const WORKERS_BASE = `${BRAIN}/workers`;
-const GIZMO_URL = process.env.GIZMO_URL ?? "";
-const GIZMO_TOKEN = process.env.GIZMO_TOKEN ?? "";
 // Router's pubkey — filter out self-messages from gizmo subscription
 const ROUTER_PUBKEY = process.env.ROUTER_PUBKEY ?? "";
 
@@ -240,21 +238,14 @@ function pauseWorker(taskId: string) {
 // ── Gizmo polling ─────────────────────────────────────────────────────────
 
 async function startGizmoWatcher() {
-  if (!GIZMO_URL || !GIZMO_TOKEN) {
-    process.stderr.write("coordinator: no GIZMO_URL/GIZMO_TOKEN, chat watching disabled\n");
-    return;
-  }
-
   const poll = async () => {
     try {
-      const url = new URL("/history", GIZMO_URL);
-      url.searchParams.set("after", String(lastChatId));
-      url.searchParams.set("limit", "50");
-      const resp = await fetch(url.toString(), {
-        headers: { Authorization: `Bearer ${GIZMO_TOKEN}` },
-      });
-      if (resp.ok) {
-        const data = (await resp.json()) as { messages: StoredMessage[] };
+      const r = Bun.spawnSync(
+        ["gizmo", "history", "--after", String(lastChatId), "--limit", "50"],
+        { stdout: "pipe", stderr: "pipe" }
+      );
+      if (r.exitCode === 0) {
+        const data = JSON.parse(r.stdout.toString()) as { messages: StoredMessage[] };
         const newMsgs = data.messages.filter(
           (m) => !ROUTER_PUBKEY || m.ed25519 !== ROUTER_PUBKEY
         );

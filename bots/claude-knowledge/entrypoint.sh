@@ -102,12 +102,15 @@ MAX_BUDGET="${MAX_BUDGET:-}"
 
 gizmo publish --user "${GIZMO_USER:-claude}" --tags "${GIZMO_TAGS:-chat}" --body "starting..." 2>/dev/null || true
 
+# Derive router's ed25519 pubkey so coordinator can filter out self-messages
+ROUTER_PUBKEY=$(gizmo users 2>/dev/null | awk -v u="${GIZMO_USER:-claude}" 'index($0,u)==1{print $NF}')
+
 # --- Phase 2: Drop privileges, run router ---
 
 unset ANTHROPIC_API_KEY GIZMO_TOKEN GIZMO_PRIVATE_KEY
 
 echo "Starting coordinator daemon..."
-bun /opt/claude-knowledge/coordinator.ts daemon 2>/var/log/coordinator.log &
+ROUTER_PUBKEY="$ROUTER_PUBKEY" bun /opt/claude-knowledge/coordinator.ts daemon 2>/var/log/coordinator.log &
 echo "Starting router agent (model: $ROUTER_MODEL, max_workers: $MAX_WORKERS)..."
 exec su -s /bin/sh agent -c "
   export MAX_WORKERS='$MAX_WORKERS'
