@@ -29,6 +29,7 @@ import {
   readFileSync,
   rmSync,
   readdirSync,
+  chmodSync,
 } from "fs";
 import { randomUUID } from "crypto";
 
@@ -259,7 +260,6 @@ function ingestMessages(msgs: StoredMessage[]) {
 
 async function catchUpHistory() {
   try {
-    const wsBase = GIZMO_URL.replace(/^http/, "ws");
     const url = new URL(`${GIZMO_URL}/history`);
     url.searchParams.set("after", String(lastChatId));
     url.searchParams.set("limit", "200");
@@ -276,10 +276,15 @@ async function catchUpHistory() {
 
 function startGizmoWatcher() {
   const wsBase = GIZMO_URL.replace(/^http/, "ws");
-  const wsUrl = `${wsBase}/ws?token=${encodeURIComponent(GIZMO_TOKEN)}&pubkey=${encodeURIComponent(ROUTER_PUBKEY || "0".repeat(64))}`;
+  const wsUrl = `${wsBase}/ws`;
 
   const connect = () => {
-    const ws = new WebSocket(wsUrl);
+    const ws = new WebSocket(wsUrl, {
+      headers: {
+        Authorization: `Bearer ${GIZMO_TOKEN}`,
+        "X-Ed25519-Pubkey": ROUTER_PUBKEY || "0".repeat(64),
+      },
+    } as unknown as string[]);
 
     ws.onopen = async () => {
       process.stderr.write("coordinator: gizmo WebSocket connected\n");
@@ -479,6 +484,7 @@ async function main() {
     startGizmoWatcher();
     const server = createServer(handleConnection);
     server.listen(SOCKET_PATH, () => {
+      chmodSync(SOCKET_PATH, 0o777);
       process.stderr.write(`coordinator: ready (socket=${SOCKET_PATH} max_workers=${MAX_WORKERS})\n`);
     });
     return;

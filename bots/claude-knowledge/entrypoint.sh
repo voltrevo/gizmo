@@ -107,20 +107,32 @@ ROUTER_PUBKEY=$(gizmo users 2>/dev/null | awk -v u="${GIZMO_USER:-claude}" 'inde
 
 # --- Phase 2: Drop privileges, run router ---
 
+echo "Starting coordinator daemon..."
+ROUTER_PUBKEY="$ROUTER_PUBKEY" \
+  GIZMO_TOKEN="$GIZMO_TOKEN" \
+  GIZMO_URL="${GIZMO_URL:-https://gizmo.voltrevo.com}" \
+  GIZMO_CHANNEL="${GIZMO_CHANNEL:-default}" \
+  bun /opt/claude-knowledge/coordinator.ts daemon 2>/var/log/coordinator.log &
+
 unset ANTHROPIC_API_KEY GIZMO_TOKEN GIZMO_PRIVATE_KEY
 
-echo "Starting coordinator daemon..."
-ROUTER_PUBKEY="$ROUTER_PUBKEY" bun /opt/claude-knowledge/coordinator.ts daemon 2>/var/log/coordinator.log &
+# Wait for coordinator socket before starting router
+until [ -S /tmp/coordinator.sock ]; do sleep 0.2; done
+
 echo "Starting router agent (model: $ROUTER_MODEL, max_workers: $MAX_WORKERS)..."
 exec su -s /bin/sh agent -c "
   export MAX_WORKERS='$MAX_WORKERS'
   export WORKER_MODEL='$WORKER_MODEL'
   export BRAIN='$BRAIN'
-  claude -p \"\$(cat /tmp/prompt-router.md)\" \
-    --allowedTools 'Bash,Read,Write,Glob,Grep,WebFetch,WebSearch' \
-    --model '$ROUTER_MODEL' \
-    ${MAX_TURNS:+--max-turns $MAX_TURNS} \
-    ${MAX_BUDGET:+--max-budget-usd $MAX_BUDGET} \
-    --output-format stream-json \
-    --verbose
+  while true; do
+    claude -p \"\$(cat /tmp/prompt-router.md)\" \
+      --allowedTools 'Bash,Read,Write,Glob,Grep,WebFetch,WebSearch' \
+      --model '$ROUTER_MODEL' \
+      ${MAX_TURNS:+--max-turns $MAX_TURNS} \
+      ${MAX_BUDGET:+--max-budget-usd $MAX_BUDGET} \
+      --output-format stream-json \
+      --verbose
+    echo 'Router exited, restarting in 3s...' >&2
+    sleep 3
+  done
 " 2>&1
